@@ -1,8 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AgentKit, cdpApiActionProvider } from '@coinbase/agentkit';
-import { getLangChainTools } from '@coinbase/agentkit-langchain';
-import { ChatOpenAI } from '@langchain/openai';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 
 export const maxDuration = 60;
 
@@ -12,6 +8,12 @@ export async function POST(req: NextRequest) {
     if (!message) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
+
+    // 動的インポートでESMモジュールの問題を回避
+    const { AgentKit, cdpApiActionProvider } = await import('@coinbase/agentkit');
+    const { getLangChainTools } = await import('@coinbase/agentkit-langchain');
+    const { ChatOpenAI } = await import('@langchain/openai');
+    const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
 
     const agentkit = await AgentKit.from({
       cdpApiKeyId: process.env.CDP_API_KEY_ID!,
