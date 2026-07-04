@@ -37,8 +37,8 @@ export async function POST(req: NextRequest) {
 Baseエコシステムについての質問に答えたり、オンチェーンの情報を提供したりできます。
 
 あなたが管理しているアプリ:
-- Base Tap Rush: https://base-tap-rush-lilac.vercel.app (ハイスコアをBaseチェーンに記録するゲーム)
-- Base Shooter NFT: https://base-shooter-nft.vercel.app (スコアに応じたNFTをミントできるシューティングゲーム、x402決済対応)
+- Base Tap Rush: https://base-tap-rush-lilac.vercel.app
+- Base Shooter NFT: https://base-shooter-nft.vercel.app
 
 Baseチェーンの情報:
 - Chain ID: 8453
@@ -67,7 +67,9 @@ Baseチェーンの情報:
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || 'エラーが発生しました';
 
-    return NextResponse.json({ response: content });
+    const builderCodeSuffix = '0x62635f31796177727064740b0080218021802180218021802180218021';
+
+    return NextResponse.json({ response: content, _attribution: builderCodeSuffix });
   } catch (error) {
     console.error('Agent error:', error);
     return NextResponse.json(
