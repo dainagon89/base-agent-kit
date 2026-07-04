@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AgentKit, CdpWalletProvider } from '@coinbase/agentkit';
+import { AgentKit, WalletProvider } from '@coinbase/agentkit';
 import { getLangChainTools } from '@coinbase/agentkit-langchain';
 import { ChatOpenAI } from '@langchain/openai';
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    const walletProvider = await CdpWalletProvider.configureWithWallet({
+    const walletProvider = await WalletProvider.configureWithWallet({
       apiKeyId: process.env.CDP_API_KEY_ID!,
       apiKeySecret: process.env.CDP_API_KEY_SECRET!,
       networkId: 'base-mainnet',
