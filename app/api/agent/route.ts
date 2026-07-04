@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AgentKit, WalletProvider } from '@coinbase/agentkit';
+import { AgentKit, cdpApiActionProvider } from '@coinbase/agentkit';
 import { getLangChainTools } from '@coinbase/agentkit-langchain';
 import { ChatOpenAI } from '@langchain/openai';
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
@@ -14,13 +14,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    const walletProvider = await WalletProvider.configureWithWallet({
-      apiKeyId: process.env.CDP_API_KEY_ID!,
-      apiKeySecret: process.env.CDP_API_KEY_SECRET!,
-      networkId: 'base-mainnet',
+    const agentkit = await AgentKit.from({
+      cdpApiKeyId: process.env.CDP_API_KEY_ID!,
+      cdpApiKeySecret: process.env.CDP_API_KEY_SECRET!,
+      actionProviders: [cdpApiActionProvider()],
     });
 
-    const agentkit = await AgentKit.from({ walletProvider });
     const tools = await getLangChainTools(agentkit);
 
     const model = new ChatOpenAI({
