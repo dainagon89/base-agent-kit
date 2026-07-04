@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AgentKit, cdpApiActionProvider } from '@coinbase/agentkit';
 import { getLangChainTools } from '@coinbase/agentkit-langchain';
 import { ChatOpenAI } from '@langchain/openai';
-import { createReactAgent } from '@langchain/langgraph/prebuilt';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 
 export const maxDuration = 60;
@@ -28,25 +27,24 @@ export async function POST(req: NextRequest) {
       openAIApiKey: process.env.OPENAI_API_KEY!,
     });
 
-    const agent = createReactAgent({ llm: model, tools });
+    const modelWithTools = model.bindTools(tools);
 
-    const result = await agent.invoke({
-      messages: [
-        new SystemMessage(`あなたはBaseチェーン上で動く自律型AIエージェントです。
+    const systemPrompt = `あなたはBaseチェーン上で動く自律型AIエージェントです。
 Baseエコシステムについての質問に答えたり、オンチェーンの情報を調べたりできます。
 - Base Tap Rush: https://base-tap-rush-lilac.vercel.app
 - Base Shooter NFT: https://base-shooter-nft.vercel.app
-日本語で丁寧に答えてください。`),
-        new HumanMessage(message),
-      ],
-    });
+日本語で丁寧に答えてください。`;
 
-    const lastMessage = result.messages[result.messages.length - 1];
-    const response = typeof lastMessage.content === 'string'
-      ? lastMessage.content
-      : JSON.stringify(lastMessage.content);
+    const response = await modelWithTools.invoke([
+      new SystemMessage(systemPrompt),
+      new HumanMessage(message),
+    ]);
 
-    return NextResponse.json({ response });
+    const content = typeof response.content === 'string'
+      ? response.content
+      : JSON.stringify(response.content);
+
+    return NextResponse.json({ response: content });
   } catch (error) {
     console.error('Agent error:', error);
     return NextResponse.json(
