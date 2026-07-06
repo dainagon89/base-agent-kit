@@ -55,8 +55,9 @@ async function getOnChainData(message: string, walletAddress?: string): Promise<
     });
     results.push(`ETH残高: ${formatEther(balance)} ETH`);
 
+    const apiKey = process.env.BASESCAN_API_KEY || '';
     const txRes = await fetch(
-      `https://api.basescan.org/api?module=account&action=txlist&address=${targetAddress}&startblock=0&endblock=99999999&page=1&offset=5&sort=desc&apikey=YourApiKeyToken`
+      `https://api.etherscan.io/v2/api?chainid=8453&module=account&action=txlist&address=${targetAddress}&startblock=0&endblock=99999999&page=1&offset=5&sort=desc&apikey=${apiKey}`
     );
     const txData = await txRes.json();
 
@@ -144,6 +145,7 @@ Baseチェーンの情報:
 - ネイティブトークン: ETH
 - 公式サイト: https://base.org
 
+ユーザーのウォレットについて聞かれたら、提供されたオンチェーンデータを使って具体的に答えてください。
 日本語で丁寧かつ簡潔に答えてください。${onChainData ? `\n\nオンチェーンデータ: ${onChainData}` : ''}`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
