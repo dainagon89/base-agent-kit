@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, createWalletClient, http, formatEther } from 'viem';
+import { createPublicClient, createWalletClient, http, formatEther, encodeAbiParameters, parseAbiParameters } from 'viem';
 import { base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -43,19 +43,36 @@ const publicClient = createPublicClient({
   transport: http(),
 });
 
-async function getOnChainData(message: string): Promise<string> {
-  const addressMatch = message.match(/0x[a-fA-F0-9]{40}/);
-  if (addressMatch) {
-    try {
-      const balance = await publicClient.getBalance({
-        address: addressMatch[0] as `0x${string}`,
+async function getOnChainData(message: string, walletAddress?: string): Promise<string> {
+  const targetAddress = walletAddress || message.match(/0x[a-fA-F0-9]{40}/)?.[0];
+  if (!targetAddress) return '';
+
+  try {
+    const results: string[] = [];
+
+    const balance = await publicClient.getBalance({
+      address: targetAddress as `0x${string}`,
+    });
+    results.push(`ETH残高: ${formatEther(balance)} ETH`);
+
+    const txRes = await fetch(
+      `https://api.basescan.org/api?module=account&action=txlist&address=${targetAddress}&startblock=0&endblock=99999999&page=1&offset=5&sort=desc&apikey=YourApiKeyToken`
+    );
+    const txData = await txRes.json();
+
+    if (txData.status === '1' && txData.result?.length > 0) {
+      const txList = txData.result.slice(0, 3).map((tx: { hash: string; value: string; timeStamp: string }) => {
+        const ethValue = formatEther(BigInt(tx.value));
+        const date = new Date(Number(tx.timeStamp) * 1000).toLocaleDateString('ja-JP');
+        return `- ${date}: ${ethValue} ETH (${tx.hash.slice(0, 10)}...)`;
       });
-      return `ウォレット ${addressMatch[0]} のBase上のETH残高: ${formatEther(balance)} ETH`;
-    } catch {
-      return '';
+      results.push(`直近の取引:\n${txList.join('\n')}`);
     }
+
+    return `ウォレット ${targetAddress} の情報:\n${results.join('\n')}`;
+  } catch {
+    return '';
   }
-  return '';
 }
 
 async function createAttestation(taskSummary: string) {
@@ -70,8 +87,6 @@ async function createAttestation(taskSummary: string) {
       transport: http(),
     });
 
-    // ABI encode the attestation data
-    const { encodeAbiParameters, parseAbiParameters } = await import('viem');
     const encodedData = encodeAbiParameters(
       parseAbiParameters('string agentName, string taskType, string taskSummary, uint256 timestamp'),
       [
@@ -110,12 +125,12 @@ async function createAttestation(taskSummary: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { message } = await req.json();
+    const { message, walletAddress } = await req.json();
     if (!message) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    const onChainData = await getOnChainData(message);
+    const onChainData = await getOnChainData(message, walletAddress);
 
     const systemPrompt = `あなたはBaseチェーン上で動く自律型AIエージェントです。
 Baseエコシステムについての質問に答えたり、オンチェーンの情報を提供したりできます。
@@ -151,7 +166,6 @@ Baseチェーンの情報:
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || 'エラーが発生しました';
 
-    // EASアテステーションを非同期で発行(レスポンスをブロックしない)
     const attestationHash = await createAttestation(message);
 
     const builderCodeSuffix = '0x62635f31796177727064740b0080218021802180218021802180218021';
