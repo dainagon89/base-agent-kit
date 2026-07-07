@@ -50,22 +50,30 @@ async function getOnChainData(message: string, walletAddress?: string): Promise<
   try {
     const results: string[] = [];
 
+    // ETH残高
     const balance = await publicClient.getBalance({
       address: targetAddress as `0x${string}`,
     });
     results.push(`ETH残高: ${formatEther(balance)} ETH`);
 
-    const apiKey = process.env.BASESCAN_API_KEY || '';
+    // Blockscout APIで取引履歴を取得(APIキー不要)
     const txRes = await fetch(
-      `https://api.etherscan.io/v2/api?chainid=8453&module=account&action=txlist&address=${targetAddress}&startblock=0&endblock=99999999&page=1&offset=5&sort=desc&apikey=${apiKey}`
+      `https://base.blockscout.com/api/v2/addresses/${targetAddress}/transactions?limit=3`
     );
     const txData = await txRes.json();
 
-    if (txData.status === '1' && txData.result?.length > 0) {
-      const txList = txData.result.slice(0, 3).map((tx: { hash: string; value: string; timeStamp: string }) => {
-        const ethValue = formatEther(BigInt(tx.value));
-        const date = new Date(Number(tx.timeStamp) * 1000).toLocaleDateString('ja-JP');
-        return `- ${date}: ${ethValue} ETH (${tx.hash.slice(0, 10)}...)`;
+    if (txData.items?.length > 0) {
+      const txList = txData.items.slice(0, 3).map((tx: {
+        hash: string;
+        value: string;
+        timestamp: string;
+        from: { hash: string };
+        to: { hash: string } | null;
+      }) => {
+        const ethValue = formatEther(BigInt(tx.value || '0'));
+        const date = new Date(tx.timestamp).toLocaleDateString('ja-JP');
+        const direction = tx.from.hash.toLowerCase() === targetAddress.toLowerCase() ? '送金' : '受取';
+        return `- ${date}: ${direction} ${ethValue} ETH (${tx.hash.slice(0, 10)}...)`;
       });
       results.push(`直近の取引:\n${txList.join('\n')}`);
     }
@@ -145,7 +153,8 @@ Baseチェーンの情報:
 - ネイティブトークン: ETH
 - 公式サイト: https://base.org
 
-ユーザーのウォレットについて聞かれたら、提供されたオンチェーンデータを使って具体的に答えてください。
+重要: オンチェーンデータが提供されている場合は、必ずそのデータを使って具体的に答えてください。
+「取引履歴を確認できません」などの回答は絶対にしないでください。
 日本語で丁寧かつ簡潔に答えてください。${onChainData ? `\n\nオンチェーンデータ: ${onChainData}` : ''}`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
