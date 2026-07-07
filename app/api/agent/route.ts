@@ -56,30 +56,36 @@ async function getOnChainData(message: string, walletAddress?: string): Promise<
     });
     results.push(`ETH残高: ${formatEther(balance)} ETH`);
 
-    // Blockscout APIで取引履歴を取得(APIキー不要)
+    // Blockscout APIで取引履歴を取得(limitパラメータなし)
     const txRes = await fetch(
-      `https://base.blockscout.com/api/v2/addresses/${targetAddress}/transactions?limit=3`
+      `https://base.blockscout.com/api/v2/addresses/${targetAddress}/transactions`
     );
     const txData = await txRes.json();
 
     if (txData.items?.length > 0) {
-      const txList = txData.items.slice(0, 3).map((tx: {
+      // 最新5件だけ使う
+      const txList = txData.items.slice(0, 5).map((tx: {
         hash: string;
         value: string;
         timestamp: string;
         from: { hash: string };
         to: { hash: string } | null;
+        status: string;
       }) => {
         const ethValue = formatEther(BigInt(tx.value || '0'));
         const date = new Date(tx.timestamp).toLocaleDateString('ja-JP');
         const direction = tx.from.hash.toLowerCase() === targetAddress.toLowerCase() ? '送金' : '受取';
-        return `- ${date}: ${direction} ${ethValue} ETH (${tx.hash.slice(0, 10)}...)`;
+        const status = tx.status === 'ok' ? '成功' : '失敗';
+        return `- ${date}: ${direction} ${ethValue} ETH [${status}] (${tx.hash.slice(0, 10)}...)`;
       });
-      results.push(`直近の取引:\n${txList.join('\n')}`);
+      results.push(`直近5件の取引:\n${txList.join('\n')}`);
+    } else {
+      results.push('取引履歴: なし');
     }
 
-    return `ウォレット ${targetAddress} の情報:\n${results.join('\n')}`;
-  } catch {
+    return results.join('\n');
+  } catch (error) {
+    console.error('onchain data error:', error);
     return '';
   }
 }
@@ -142,20 +148,26 @@ export async function POST(req: NextRequest) {
     const onChainData = await getOnChainData(message, walletAddress);
 
     const systemPrompt = `あなたはBaseチェーン上で動く自律型AIエージェントです。
-Baseエコシステムについての質問に答えたり、オンチェーンの情報を提供したりできます。
 
-あなたが管理しているアプリ:
+【絶対ルール】
+以下のオンチェーンデータはリアルタイム取得済みです。
+ユーザーから残高・取引履歴・最新取引・ETH残高について聞かれた場合、
+絶対にこのデータだけを使って回答してください。
+「取得できません」「Block Explorerを見てください」とは絶対に回答してはいけません。
+
+【取得済みオンチェーンデータ】
+${onChainData || 'ウォレット未接続'}
+
+【あなたが管理しているアプリ】
 - Base Tap Rush: https://base-tap-rush-lilac.vercel.app
 - Base Shooter NFT: https://base-shooter-nft.vercel.app
 
-Baseチェーンの情報:
+【Baseチェーンの情報】
 - Chain ID: 8453
 - ネイティブトークン: ETH
 - 公式サイト: https://base.org
 
-重要: オンチェーンデータが提供されている場合は、必ずそのデータを使って具体的に答えてください。
-「取引履歴を確認できません」などの回答は絶対にしないでください。
-日本語で丁寧かつ簡潔に答えてください。${onChainData ? `\n\nオンチェーンデータ: ${onChainData}` : ''}`;
+日本語で丁寧かつ簡潔に答えてください。`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -169,8 +181,8 @@ Baseチェーンの情報:
           { role: 'system', content: systemPrompt },
           { role: 'user', content: message },
         ],
-        temperature: 0.7,
-        max_tokens: 500,
+        temperature: 0.3,
+        max_tokens: 600,
       }),
     });
 
