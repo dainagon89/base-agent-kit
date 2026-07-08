@@ -38,6 +38,18 @@ const EAS_ABI = [
   },
 ] as const;
 
+const TOKEN_MAP: Record<string, string> = {
+  'ETH':     '0x4200000000000000000000000000000000000006',
+  'WETH':    '0x4200000000000000000000000000000000000006',
+  'USDC':    '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  'CBBTC':   '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf',
+  'VIRTUAL': '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b',
+  'AERO':    '0x940181a94A35A4569E4529a3CDfB74e38FD98631',
+  'BRETT':   '0x532f27101965dd16442E59d40670FaF5eBB142E4',
+  'TOSHI':   '0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4',
+  'DEGEN':   '0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed',
+};
+
 const publicClient = createPublicClient({
   chain: base,
   transport: http(),
@@ -45,33 +57,25 @@ const publicClient = createPublicClient({
 
 async function getTokenPrice(symbol: string): Promise<string> {
   try {
-    const tokenMap: Record<string, string> = {
-      'ETH': '0x4200000000000000000000000000000000000006',
-      'WETH': '0x4200000000000000000000000000000000000006',
-      'USDC': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-      'CBBTC': '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf',
-      'VIRTUAL': '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b',
-    };
-
-    const upperSymbol = symbol.toUpperCase();
-    const tokenAddress = tokenMap[upperSymbol];
+    const tokenAddress = TOKEN_MAP[symbol.toUpperCase()];
     if (!tokenAddress) return '';
 
     const res = await fetch(
-      `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
-      { next: { revalidate: 60 } }
+      `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`
     );
     const data = await res.json();
 
     if (data.pairs?.length > 0) {
-      const pair = data.pairs[0];
+      const pair = data.pairs.sort((a: {liquidity?: {usd?: number}}, b: {liquidity?: {usd?: number}}) =>
+        (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0)
+      )[0];
       const price = parseFloat(pair.priceUsd).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 6,
       });
       const change24h = pair.priceChange?.h24 ?? 0;
       const volume24h = Number(pair.volume?.h24 ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
-      return `${upperSymbol}の現在価格: $${price} (24h変動: ${change24h > 0 ? '+' : ''}${change24h}%, 24h出来高: $${volume24h})`;
+      return `${symbol.toUpperCase()}の現在価格: $${price} (24h変動: ${change24h > 0 ? '+' : ''}${change24h}%, 24h出来高: $${volume24h})`;
     }
     return '';
   } catch {
@@ -82,17 +86,22 @@ async function getTokenPrice(symbol: string): Promise<string> {
 async function getOnChainData(message: string, walletAddress?: string): Promise<string> {
   const results: string[] = [];
 
-  // 価格クエリを検出
-  const priceKeywords = ['価格', 'price', 'いくら', '相場', 'レート'];
-  const tokenKeywords = ['ETH', 'WETH', 'USDC', 'CBBTC', 'VIRTUAL'];
-  const isPriceQuery = priceKeywords.some(k => message.toLowerCase().includes(k.toLowerCase()));
-  const mentionedToken = tokenKeywords.find(t => message.toUpperCase().includes(t));
+  // メッセージ内に含まれるトークンシンボルを全部検出
+  const mentionedTokens = Object.keys(TOKEN_MAP).filter(t =>
+    message.toUpperCase().includes(t)
+  );
 
-  if (isPriceQuery && mentionedToken) {
-    const priceInfo = await getTokenPrice(mentionedToken);
-    if (priceInfo) results.push(priceInfo);
+  // 価格クエリキーワード または トークン名だけで聞いている場合
+  const priceKeywords = ['価格', 'price', 'いくら', '相場', 'レート', '値段', 'いま', '今'];
+  const isPriceQuery = priceKeywords.some(k => message.toLowerCase().includes(k.toLowerCase()))
+    || mentionedTokens.length > 0;
+
+  if (isPriceQuery && mentionedTokens.length > 0) {
+    for (const token of mentionedTokens) {
+      const priceInfo = await getTokenPrice(token);
+      if (priceInfo) results.push(priceInfo);
+    }
   } else if (isPriceQuery) {
-    // ETHのデフォルト価格
     const ethPrice = await getTokenPrice('ETH');
     if (ethPrice) results.push(ethPrice);
   }
@@ -213,7 +222,7 @@ ${onChainData || 'ウォレット未接続・価格クエリなし'}
 - ネイティブトークン: ETH
 - 公式サイト: https://base.org
 
-対応トークン価格: ETH, USDC, CBBTC, VIRTUAL
+対応トークン価格: ETH, WETH, USDC, CBBTC, VIRTUAL, AERO, BRETT, TOSHI, DEGEN
 日本語で丁寧かつ簡潔に答えてください。`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
