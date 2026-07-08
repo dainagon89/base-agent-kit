@@ -43,51 +43,97 @@ const publicClient = createPublicClient({
   transport: http(),
 });
 
-async function getOnChainData(message: string, walletAddress?: string): Promise<string> {
-  const targetAddress = walletAddress || message.match(/0x[a-fA-F0-9]{40}/)?.[0];
-  if (!targetAddress) return '';
-
+async function getTokenPrice(symbol: string): Promise<string> {
   try {
-    const results: string[] = [];
+    const tokenMap: Record<string, string> = {
+      'ETH': '0x4200000000000000000000000000000000000006',
+      'WETH': '0x4200000000000000000000000000000000000006',
+      'USDC': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      'CBBTC': '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf',
+      'VIRTUAL': '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b',
+    };
 
-    // ETH残高
-    const balance = await publicClient.getBalance({
-      address: targetAddress as `0x${string}`,
-    });
-    results.push(`ETH残高: ${formatEther(balance)} ETH`);
+    const upperSymbol = symbol.toUpperCase();
+    const tokenAddress = tokenMap[upperSymbol];
+    if (!tokenAddress) return '';
 
-    // Blockscout APIで取引履歴を取得(limitパラメータなし)
-    const txRes = await fetch(
-      `https://base.blockscout.com/api/v2/addresses/${targetAddress}/transactions`
+    const res = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
+      { next: { revalidate: 60 } }
     );
-    const txData = await txRes.json();
+    const data = await res.json();
 
-    if (txData.items?.length > 0) {
-      // 最新5件だけ使う
-      const txList = txData.items.slice(0, 5).map((tx: {
-        hash: string;
-        value: string;
-        timestamp: string;
-        from: { hash: string };
-        to: { hash: string } | null;
-        status: string;
-      }) => {
-        const ethValue = formatEther(BigInt(tx.value || '0'));
-        const date = new Date(tx.timestamp).toLocaleDateString('ja-JP');
-        const direction = tx.from.hash.toLowerCase() === targetAddress.toLowerCase() ? '送金' : '受取';
-        const status = tx.status === 'ok' ? '成功' : '失敗';
-        return `- ${date}: ${direction} ${ethValue} ETH [${status}] (${tx.hash.slice(0, 10)}...)`;
+    if (data.pairs?.length > 0) {
+      const pair = data.pairs[0];
+      const price = parseFloat(pair.priceUsd).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 6,
       });
-      results.push(`直近5件の取引:\n${txList.join('\n')}`);
-    } else {
-      results.push('取引履歴: なし');
+      const change24h = pair.priceChange?.h24 ?? 0;
+      const volume24h = Number(pair.volume?.h24 ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+      return `${upperSymbol}の現在価格: $${price} (24h変動: ${change24h > 0 ? '+' : ''}${change24h}%, 24h出来高: $${volume24h})`;
     }
-
-    return results.join('\n');
-  } catch (error) {
-    console.error('onchain data error:', error);
+    return '';
+  } catch {
     return '';
   }
+}
+
+async function getOnChainData(message: string, walletAddress?: string): Promise<string> {
+  const results: string[] = [];
+
+  // 価格クエリを検出
+  const priceKeywords = ['価格', 'price', 'いくら', '相場', 'レート'];
+  const tokenKeywords = ['ETH', 'WETH', 'USDC', 'CBBTC', 'VIRTUAL'];
+  const isPriceQuery = priceKeywords.some(k => message.toLowerCase().includes(k.toLowerCase()));
+  const mentionedToken = tokenKeywords.find(t => message.toUpperCase().includes(t));
+
+  if (isPriceQuery && mentionedToken) {
+    const priceInfo = await getTokenPrice(mentionedToken);
+    if (priceInfo) results.push(priceInfo);
+  } else if (isPriceQuery) {
+    // ETHのデフォルト価格
+    const ethPrice = await getTokenPrice('ETH');
+    if (ethPrice) results.push(ethPrice);
+  }
+
+  // ウォレットデータ
+  const targetAddress = walletAddress || message.match(/0x[a-fA-F0-9]{40}/)?.[0];
+  if (targetAddress) {
+    try {
+      const balance = await publicClient.getBalance({
+        address: targetAddress as `0x${string}`,
+      });
+      results.push(`ETH残高: ${formatEther(balance)} ETH`);
+
+      const txRes = await fetch(
+        `https://base.blockscout.com/api/v2/addresses/${targetAddress}/transactions`
+      );
+      const txData = await txRes.json();
+
+      if (txData.items?.length > 0) {
+        const txList = txData.items.slice(0, 5).map((tx: {
+          hash: string;
+          value: string;
+          timestamp: string;
+          from: { hash: string };
+          to: { hash: string } | null;
+          status: string;
+        }) => {
+          const ethValue = formatEther(BigInt(tx.value || '0'));
+          const date = new Date(tx.timestamp).toLocaleDateString('ja-JP');
+          const direction = tx.from.hash.toLowerCase() === targetAddress.toLowerCase() ? '送金' : '受取';
+          const status = tx.status === 'ok' ? '成功' : '失敗';
+          return `- ${date}: ${direction} ${ethValue} ETH [${status}] (${tx.hash.slice(0, 10)}...)`;
+        });
+        results.push(`直近5件の取引:\n${txList.join('\n')}`);
+      }
+    } catch (error) {
+      console.error('wallet data error:', error);
+    }
+  }
+
+  return results.join('\n');
 }
 
 async function createAttestation(taskSummary: string) {
@@ -151,12 +197,12 @@ export async function POST(req: NextRequest) {
 
 【絶対ルール】
 以下のオンチェーンデータはリアルタイム取得済みです。
-ユーザーから残高・取引履歴・最新取引・ETH残高について聞かれた場合、
+ユーザーから残高・取引履歴・最新取引・ETH残高・トークン価格について聞かれた場合、
 絶対にこのデータだけを使って回答してください。
 「取得できません」「Block Explorerを見てください」とは絶対に回答してはいけません。
 
 【取得済みオンチェーンデータ】
-${onChainData || 'ウォレット未接続'}
+${onChainData || 'ウォレット未接続・価格クエリなし'}
 
 【あなたが管理しているアプリ】
 - Base Tap Rush: https://base-tap-rush-lilac.vercel.app
@@ -167,6 +213,7 @@ ${onChainData || 'ウォレット未接続'}
 - ネイティブトークン: ETH
 - 公式サイト: https://base.org
 
+対応トークン価格: ETH, USDC, CBBTC, VIRTUAL
 日本語で丁寧かつ簡潔に答えてください。`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
