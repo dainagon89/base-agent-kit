@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
+import { TransferCard } from '@/components/TransferCard';
 
 interface Message {
   role: 'user' | 'agent';
   content: string;
+  transferIntent?: { to: string; amount: string };
 }
 
 function WalletBar() {
@@ -51,7 +53,7 @@ export default function Page() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'agent',
-      content: 'こんにちは！Baseチェーンの自律型AIエージェントです。ウォレットを接続すると、残高や取引履歴も調べられます。',
+      content: 'こんにちは！Baseチェーンの自律型AIエージェントです。ウォレットを接続すると、残高や取引履歴も調べられます。USDCの送金も「0x...に0.5 USDC送って」のように頼めます。',
     },
   ]);
   const [input, setInput] = useState('');
@@ -81,6 +83,7 @@ export default function Page() {
         {
           role: 'agent',
           content: data.response || data.error || 'エラーが発生しました',
+          transferIntent: data.transferIntent,
         },
       ]);
     } catch {
@@ -112,7 +115,7 @@ export default function Page() {
 
       <div className="flex-1 space-y-4 overflow-y-auto pb-4">
         {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div
               className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
                 msg.role === 'user'
@@ -125,6 +128,10 @@ export default function Page() {
               )}
               <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
             </div>
+
+            {msg.transferIntent && (
+              <TransferCard to={msg.transferIntent.to} amount={msg.transferIntent.amount} />
+            )}
           </div>
         ))}
         {loading && (
