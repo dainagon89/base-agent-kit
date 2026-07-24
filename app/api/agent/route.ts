@@ -1,42 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, createWalletClient, http, formatEther, encodeAbiParameters, parseAbiParameters } from 'viem';
+import { createPublicClient, http, formatEther } from 'viem';
 import { base } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
+import { createAttestation } from '@/lib/eas';
 
 export const maxDuration = 60;
-
-const EAS_CONTRACT = '0x4200000000000000000000000000000000000021' as `0x${string}`;
-const SCHEMA_UID = process.env.EAS_SCHEMA_UID as `0x${string}`;
-
-const EAS_ABI = [
-  {
-    type: 'function',
-    name: 'attest',
-    inputs: [
-      {
-        name: 'request',
-        type: 'tuple',
-        components: [
-          { name: 'schema', type: 'bytes32' },
-          {
-            name: 'data',
-            type: 'tuple',
-            components: [
-              { name: 'recipient', type: 'address' },
-              { name: 'expirationTime', type: 'uint64' },
-              { name: 'revocable', type: 'bool' },
-              { name: 'refUID', type: 'bytes32' },
-              { name: 'data', type: 'bytes' },
-              { name: 'value', type: 'uint256' },
-            ],
-          },
-        ],
-      },
-    ],
-    outputs: [{ name: '', type: 'bytes32' }],
-    stateMutability: 'payable',
-  },
-] as const;
 
 const TOKEN_MAP: Record<string, string> = {
   'ETH':     '0x4200000000000000000000000000000000000006',
@@ -54,6 +21,34 @@ const publicClient = createPublicClient({
   chain: base,
   transport: http(),
 });
+
+// ------------------------------------------------------------------
+// USDC送金の「意図」を検出するだけの関数。
+// ⚠️ ここでは絶対に送金を実行しない。実際の送金は必ずユーザー自身の
+//    ウォレットの署名で、フロントエンド側で行う(非カストディアル設計)。
+// ------------------------------------------------------------------
+interface TransferIntent {
+  to: string;
+  amount: string;
+}
+
+function parseTransferIntent(message: string): TransferIntent | null {
+  const sendKeywords = /(送って|送金|transfer|send)/i;
+  if (!sendKeywords.test(message)) return null;
+  if (!/usdc/i.test(message)) return null;
+
+  const addressMatch = message.match(/0x[a-fA-F0-9]{40}/);
+  if (!addressMatch) return null;
+
+  // 「0.5」「0.5 USDC」「USDCを0.5」など、数字を抽出
+  const amountMatch = message.match(/(\d+(?:\.\d+)?)\s*(?:USDC)?/i);
+  if (!amountMatch) return null;
+
+  const amount = amountMatch[1];
+  if (parseFloat(amount) <= 0) return null;
+
+  return { to: addressMatch[0], amount };
+}
 
 async function getTokenPrice(symbol: string): Promise<string> {
   try {
@@ -86,12 +81,10 @@ async function getTokenPrice(symbol: string): Promise<string> {
 async function getOnChainData(message: string, walletAddress?: string): Promise<string> {
   const results: string[] = [];
 
-  // メッセージ内に含まれるトークンシンボルを全部検出
   const mentionedTokens = Object.keys(TOKEN_MAP).filter(t =>
     message.toUpperCase().includes(t)
   );
 
-  // 価格クエリキーワード または トークン名だけで聞いている場合
   const priceKeywords = ['価格', 'price', 'いくら', '相場', 'レート', '値段', 'いま', '今'];
   const isPriceQuery = priceKeywords.some(k => message.toLowerCase().includes(k.toLowerCase()))
     || mentionedTokens.length > 0;
@@ -106,7 +99,6 @@ async function getOnChainData(message: string, walletAddress?: string): Promise<
     if (ethPrice) results.push(ethPrice);
   }
 
-  // ウォレットデータ
   const targetAddress = walletAddress || message.match(/0x[a-fA-F0-9]{40}/)?.[0];
   if (targetAddress) {
     try {
@@ -145,59 +137,26 @@ async function getOnChainData(message: string, walletAddress?: string): Promise<
   return results.join('\n');
 }
 
-async function createAttestation(taskSummary: string) {
-  try {
-    const privateKey = process.env.AGENT_PRIVATE_KEY!;
-    const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-    const account = privateKeyToAccount(formattedKey as `0x${string}`);
-
-    const walletClient = createWalletClient({
-      account,
-      chain: base,
-      transport: http(),
-    });
-
-    const encodedData = encodeAbiParameters(
-      parseAbiParameters('string agentName, string taskType, string taskSummary, uint256 timestamp'),
-      [
-        'Base Agent Kit',
-        'chat_completion',
-        taskSummary.slice(0, 100),
-        BigInt(Math.floor(Date.now() / 1000)),
-      ]
-    );
-
-    const hash = await walletClient.writeContract({
-      address: EAS_CONTRACT,
-      abi: EAS_ABI,
-      functionName: 'attest',
-      args: [
-        {
-          schema: SCHEMA_UID,
-          data: {
-            recipient: '0x0000000000000000000000000000000000000000',
-            expirationTime: BigInt(0),
-            revocable: true,
-            refUID: '0x0000000000000000000000000000000000000000000000000000000000000000',
-            data: encodedData,
-            value: BigInt(0),
-          },
-        },
-      ],
-    });
-
-    return hash;
-  } catch (error) {
-    console.error('EAS attestation error:', error);
-    return null;
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const { message, walletAddress } = await req.json();
     if (!message) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+    }
+
+    // --- 送金の意図を検出(実行はしない) ---
+    const transferIntent = parseTransferIntent(message);
+    if (transferIntent) {
+      if (!walletAddress) {
+        return NextResponse.json({
+          response: 'USDCを送金するには、まずウォレットを接続してください。',
+        });
+      }
+      // 実際の送金確認・署名・実行はすべてフロントエンド(ユーザーのウォレット)側で行う。
+      return NextResponse.json({
+        response: `${transferIntent.to} へ ${transferIntent.amount} USDC を送金しますか?下のカードから確認・実行してください。`,
+        transferIntent,
+      });
     }
 
     const onChainData = await getOnChainData(message, walletAddress);
@@ -223,6 +182,7 @@ ${onChainData || 'ウォレット未接続・価格クエリなし'}
 - 公式サイト: https://base.org
 
 対応トークン価格: ETH, WETH, USDC, CBBTC, VIRTUAL, AERO, BRETT, TOSHI, DEGEN
+USDCの送金は「0x...に0.5 USDC送って」のように言うと、確認カードが表示されます。
 日本語で丁寧かつ簡潔に答えてください。`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -245,7 +205,7 @@ ${onChainData || 'ウォレット未接続・価格クエリなし'}
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || 'エラーが発生しました';
 
-    const attestationHash = await createAttestation(message);
+    const attestationHash = await createAttestation('chat_completion', message);
 
     const builderCodeSuffix = '0x62635f31796177727064740b0080218021802180218021802180218021';
 
