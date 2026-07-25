@@ -40,8 +40,9 @@ function parseTransferIntent(message: string): TransferIntent | null {
   const addressMatch = message.match(/0x[a-fA-F0-9]{40}/);
   if (!addressMatch) return null;
 
-  // 「0.5」「0.5 USDC」「USDCを0.5」など、数字を抽出
-  const amountMatch = message.match(/(\d+(?:\.\d+)?)\s*(?:USDC)?/i);
+  // 「0.5 USDC」「0.5USDC」のように、数字の直後にUSDCが続く場合のみ金額として認識する。
+  // (これによりウォレットアドレス内の数字を誤って金額と認識するのを防ぐ)
+  const amountMatch = message.match(/(\d+(?:\.\d+)?)\s*USDC/i);
   if (!amountMatch) return null;
 
   const amount = amountMatch[1];
