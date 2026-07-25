@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { encodeFunctionData, parseUnits } from 'viem';
+import { encodeFunctionData, concat, parseUnits } from 'viem';
 import { useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
-// import { BUILDER_CODE_DATA_SUFFIX } from '@/lib/builderCode'; // 一時的に無効化(デバッグ中)
+import { BUILDER_CODE_DATA_SUFFIX } from '@/lib/builderCode';
 
 const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${string}`;
 const USDC_DECIMALS = 6;
@@ -54,7 +54,7 @@ export function TransferCard({ to, amount }: Props) {
 
     sendTransaction({
       to: USDC_ADDRESS,
-      data: callData, // ⚠️ デバッグのため一時的にBuilder Codeを外しています
+      data: concat([callData, BUILDER_CODE_DATA_SUFFIX]),
     });
   };
 
