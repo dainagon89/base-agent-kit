@@ -1,4 +1,3 @@
-te · TS
 import { NextRequest, NextResponse } from 'next/server';
 import { createPublicClient, http, formatEther, formatUnits, parseEther } from 'viem';
 import { base } from 'viem/chains';
