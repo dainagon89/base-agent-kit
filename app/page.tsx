@@ -3,11 +3,19 @@
 import { useState } from 'react';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { TransferCard } from '@/components/TransferCard';
+import { SwapCard } from '@/components/SwapCard';
 
 interface Message {
   role: 'user' | 'agent';
   content: string;
   transferIntent?: { to: string; amount: string };
+  swapIntent?: {
+    amountInEth: string;
+    tokenOutSymbol: string;
+    tokenOutAddress: string;
+    quoteAmountOut: string;
+    amountOutMin: string;
+  };
 }
 
 function WalletBar() {
@@ -53,7 +61,7 @@ export default function Page() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'agent',
-      content: 'こんにちは！Baseチェーンの自律型AIエージェントです。ウォレットを接続すると、残高や取引履歴も調べられます。USDCの送金も「0x...に0.5 USDC送って」のように頼めます。',
+      content: 'こんにちは！Baseチェーンの自律型AIエージェントです。ウォレットを接続すると、残高や取引履歴も調べられます。USDCの送金は「0x...に0.5 USDC送って」、トークンのスワップは「0.001 ETHをAEROにスワップして」のように頼めます。',
     },
   ]);
   const [input, setInput] = useState('');
@@ -84,6 +92,7 @@ export default function Page() {
           role: 'agent',
           content: data.response || data.error || 'エラーが発生しました',
           transferIntent: data.transferIntent,
+          swapIntent: data.swapIntent,
         },
       ]);
     } catch {
@@ -131,6 +140,16 @@ export default function Page() {
 
             {msg.transferIntent && (
               <TransferCard to={msg.transferIntent.to} amount={msg.transferIntent.amount} />
+            )}
+
+            {msg.swapIntent && (
+              <SwapCard
+                amountInEth={msg.swapIntent.amountInEth}
+                tokenOutSymbol={msg.swapIntent.tokenOutSymbol}
+                tokenOutAddress={msg.swapIntent.tokenOutAddress}
+                quoteAmountOut={msg.swapIntent.quoteAmountOut}
+                amountOutMin={msg.swapIntent.amountOutMin}
+              />
             )}
           </div>
         ))}
