@@ -1,6 +1,6 @@
 # Base Agent Kit
 
-Baseエコシステム向けの自律型AIエージェント。オンチェーンデータの取得と、チャット完了ごとのEASアテステーション自動発行を行います。
+Baseエコシステム向けの自律型AIエージェント。オンチェーンデータの取得、USDC送金・Aerodromeスワップの実行支援、x402マイクロペイメント、EASアテステーション自動発行を行います。
 
 **🤖 Live App:** https://base-agent-kit-pied.vercel.app
 **📦 GitHub:** https://github.com/dainagon89/base-agent-kit
@@ -9,24 +9,28 @@ Baseエコシステム向けの自律型AIエージェント。オンチェー�
 
 ## 概要
 
-Base Agent Kit は OpenAI GPT-4o-mini を活用した自律型AIエージェントです。Baseエコシステムに関する質問への回答、リアルタイムのオンチェーンデータ取得に加え、完了したタスクごとにBaseメインネット上でEASアテステーションを自動発行します。
+Base Agent Kit は OpenAI GPT-4o-mini(プレミアム機能はGPT-4o)を活用した自律型AIエージェントです。Baseエコシステムに関する質問への回答、リアルタイムのオンチェーンデータ取得に加え、**USDC送金・Aerodromeでのトークンスワップ**をチャットから直接呼び出せます。すべての資金操作は**ユーザー自身のウォレット署名**で実行される非カストディアル設計です。加えて、完了したタスクごとにBaseメインネット上でEASアテステーションを自動発行します。
 
 ## 機能
 
 - **リアルタイムトークン価格**(DexScreener経由): ETH, USDC, CBBTC, VIRTUAL, AERO, BRETT, TOSHI, DEGEN
-- **ウォレット残高取得**(viem経由、Base mainnet)
-- **取引履歴取得**(Blockscout API、APIキー不要)
-- **EASアテステーション自動発行**(チャット完了ごと)
+- **ウォレット残高・取引履歴取得**(viem / Blockscout API経由、Base mainnet)
+- **USDC送金**: 「0x...に0.5 USDC送って」と話しかけるだけで送金確認カードが表示され、ユーザー自身の署名で送金
+- **Aerodromeスワップ**: 「0.001 ETHをAEROにスワップして」で見積もり取得→確認カード→ユーザー自身の署名でオンチェーン実行
+- **x402プレミアム分析**: $0.01 USDCの支払いで、GPT-4oによる詳細なウォレット分析レポートを取得(汎用APIとしても公開)
+- **EASアテステーション自動発行**(チャット完了・送金・スワップ・プレミアム分析すべてで発行)
 - **ウォレット接続**(wagmi経由、MetaMask / Coinbase Wallet)
-- **Builder Code帰属**(ERC-8021、全レスポンスに埋め込み)
+- **Builder Code帰属**(ERC-8021、全オンチェーン操作に埋め込み)
 
 ## 技術スタック
 
 - **フレームワーク:** Next.js 14–16 (App Router)
 - **Web3ライブラリ:** wagmi, viem
 - **スタイリング:** Tailwind CSS
-- **AI:** OpenAI GPT-4o-mini
-- **アテステーション:** EAS SDK (`@ethereum-attestation-service/eas-sdk`), ethers
+- **AI:** OpenAI GPT-4o-mini(通常)/ GPT-4o(プレミアム分析)
+- **DEX連携:** Aerodrome Finance (Base mainnet Router)
+- **決済:** x402(自前のverify/settle、CDP facilitator不使用)
+- **アテステーション:** EAS
 - **デプロイ:** Vercel
 - **チェーン:** Base Mainnet (Chain ID: 8453)
 
@@ -35,6 +39,7 @@ Base Agent Kit は OpenAI GPT-4o-mini を活用した自律型AIエージェン�
 | 項目 | URL |
 | --- | --- |
 | アプリ | https://base-agent-kit-pied.vercel.app |
+| プレミアム分析API | https://base-agent-kit-pied.vercel.app/api/premium-analysis?address=0x... |
 | GitHub | https://github.com/dainagon89/base-agent-kit |
 
 ## 環境変数の設定方法
@@ -44,14 +49,17 @@ Vercelの `Settings → Environment Variables` から以下を設定してくだ
 ```bash
 # .env.local
 OPENAI_API_KEY=your_openai_api_key
-AGENT_PRIVATE_KEY=your_agent_wallet_private_key   # EASアテステーション発行用ウォレット
+AGENT_PRIVATE_KEY=your_agent_wallet_private_key   # EASアテステーション発行 + x402決済のリレー実行用
 EAS_SCHEMA_UID=0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3
+ANALYSIS_PAYOUT_ADDRESS=your_payout_wallet_address # プレミアム分析の収益受取先
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
 ```
 
 設定後は Vercel の Deployments タブから **Redeploy** して反映してください。
 
-> ⚠️ `AGENT_PRIVATE_KEY` はガス代を含むオンチェーン発行を行う秘密鍵です。絶対にリポジトリにコミットせず、Vercelの環境変数としてのみ管理してください。
+> ⚠️ `AGENT_PRIVATE_KEY` はガス代を含むオンチェーン発行・決済リレーを行う秘密鍵です。絶対にリポジトリにコミットせず、Vercelの環境変数としてのみ管理してください。
+
+> ⚠️ `BigInt` リテラルを使用するため、`tsconfig.json` の `target` は `ES2020` 以上である必要があります。
 
 ## 対応トークン価格 (DexScreener)
 
@@ -71,22 +79,62 @@ NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
 
 ## ウォレットデータ
 
-ウォレット接続時、エージェントは以下を取得できます。
-
-- Base mainnet上のETH残高
-- 直近の取引履歴(Blockscout経由、最新5件)
-
 **プロンプト例:**
 > 「私の残高を教えて」「直近の取引履歴を見せて」
 
+## USDC送金(非カストディアル)
+
+チャットで「0x(送金先アドレス)に(金額)USDC送って」と話しかけると、送金確認カードが表示されます。**実際の送金はユーザー自身のウォレットの署名で実行され、サーバーは資金に一切触れません。**
+
+**プロンプト例:**
+> 「0xFc9D...728C6に0.5 USDCを送って」
+
+| 項目 | 値 |
+| --- | --- |
+| 対象トークン | USDC (Base mainnet) |
+| 実行方式 | ERC-20 `transfer`、ユーザーのウォレットが署名・送信 |
+| Builder Code | 送金トランザクションのcalldataに付与 |
+
+## Aerodromeトークンスワップ(非カストディアル)
+
+チャットで「(金額) ETHを(トークン名)にスワップして」と話しかけると、Aerodrome Router経由の見積もり(スリッページ3%許容)を取得し、確認カードを表示します。**実行はユーザー自身のウォレットの署名。**
+
+**プロンプト例:**
+> 「0.001 ETHをAEROにスワップして」
+
+| 項目 | 値 |
+| --- | --- |
+| DEX | Aerodrome Finance |
+| Router | `0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43` |
+| PoolFactory | `0x420DD381b31aEf6683db6B902084cB0FFECe40Da` |
+| 対応方向 | ETH → 指定トークン(第一弾。トークン→トークンは今後の拡張) |
+
+## x402プレミアム分析(汎用API)
+
+$0.01 USDCの支払いで、GPT-4oによる詳細なウォレット分析レポート(資産状況・取引パターン・リスク評価)を取得できます。ゲームスコアなどに依存しない、**誰のウォレットアドレスでも呼び出せる汎用エンドポイント**です。
+
+```
+GET https://base-agent-kit-pied.vercel.app/api/premium-analysis?address={ウォレットアドレス}
+```
+
+| 項目 | 値 |
+| --- | --- |
+| 決済方式 | EIP-3009 TransferWithAuthorization(自前のverify/settle、CDP facilitator不使用) |
+| Asset | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`(USDC on Base) |
+| 金額 | 10000(= $0.01 USDC、6 decimals) |
+| 使用モデル | GPT-4o(無料チャット枠のGPT-4o-miniより高性能) |
+
+**プロンプト例(チャットUI経由):**
+> 「0x...を詳しく分析して」
+
 ## EASアテステーション
 
-ユーザーがメッセージを送信するたびに、Baseメインネット上でEASアテステーションが自動発行され、エージェントが実タスクを完了した検証可能な証明を提供します。
+チャット応答・USDC送金・Aerodromeスワップ・プレミアム分析、それぞれの完了時にBaseメインネット上でEASアテステーションが自動発行されます。
 
 | 項目 | 値 |
 | --- | --- |
 | EAS Schema UID | `0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3` |
-| スキーマフィールド | `agentName` (string, 常に"Base Agent Kit"), `taskType` (string, 常に"chat_completion"), `taskSummary` (string, ユーザーメッセージ先頭100文字), `timestamp` (uint256) |
+| taskType | `chat_completion` / `usdc_transfer` / `aerodrome_swap` / `premium_analysis` |
 | Attestations一覧 | https://base.easscan.org/attestations/forSchema/0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3 |
 | エージェントウォレット | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
 
@@ -106,7 +154,7 @@ https://base-shooter-nft.vercel.app
 
 ## Builder Code (ERC-8021)
 
-全レスポンスにBuilder Codeサフィックスが付与され、属性情報として付加されます。
+チャット応答・USDC送金・Aerodromeスワップ・プレミアム分析、すべてのオンチェーン操作にBuilder Codeサフィックスが付与されます。
 
 | 項目 | 値 |
 | --- | --- |
@@ -123,7 +171,7 @@ https://base-shooter-nft.vercel.app
 | base.dev App ID | `6a48e19b95ca1d5df06c43b0` |
 | Builder Code | `bc_1yawrpdt` |
 | EAS Schema UID | `0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3` |
-| Agent Wallet | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
+| Agent Wallet(EAS + x402決済リレー) | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
 
 ## Builder
 
