@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { TransferCard } from '@/components/TransferCard';
 import { SwapCard } from '@/components/SwapCard';
+import { AnalysisCard } from '@/components/AnalysisCard';
 
 interface Message {
   role: 'user' | 'agent';
@@ -16,6 +17,7 @@ interface Message {
     quoteAmountOut: string;
     amountOutMin: string;
   };
+  analysisTarget?: string;
 }
 
 function WalletBar() {
@@ -93,6 +95,7 @@ export default function Page() {
           content: data.response || data.error || 'エラーが発生しました',
           transferIntent: data.transferIntent,
           swapIntent: data.swapIntent,
+          analysisTarget: data.analysisTarget,
         },
       ]);
     } catch {
@@ -151,6 +154,8 @@ export default function Page() {
                 amountOutMin={msg.swapIntent.amountOutMin}
               />
             )}
+
+            {msg.analysisTarget && <AnalysisCard address={msg.analysisTarget} />}
           </div>
         ))}
         {loading && (
