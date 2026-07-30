@@ -5,6 +5,7 @@ import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { TransferCard } from '@/components/TransferCard';
 import { SwapCard } from '@/components/SwapCard';
 import { AnalysisCard } from '@/components/AnalysisCard';
+import { AnalysisCardA2A } from '@/components/AnalysisCardA2A';
 
 interface Message {
   role: 'user' | 'agent';
@@ -156,6 +157,7 @@ export default function Page() {
             )}
 
             {msg.analysisTarget && <AnalysisCard address={msg.analysisTarget} />}
+            {msg.analysisTarget && <AnalysisCardA2A address={msg.analysisTarget} />}
           </div>
         ))}
         {loading && (
