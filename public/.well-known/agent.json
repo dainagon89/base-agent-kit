@@ -1,0 +1,84 @@
+{
+  "name": "Base Agent Kit",
+  "description": "Autonomous GPT-4o-mini agent on Base mainnet. Provides token price lookups, wallet balance/history checks, non-custodial USDC transfers, Aerodrome swaps, and premium GPT-4o wallet analysis paid via x402 (USDC on Base).",
+  "url": "https://base-agent-kit-pied.vercel.app/api/a2a",
+  "iconUrl": "https://base-agent-kit-pied.vercel.app/icon.png",
+  "provider": {
+    "organization": "dainagon.eth",
+    "url": "https://github.com/dainagon89/base-agent-kit"
+  },
+  "version": "0.1.0",
+  "documentationUrl": "https://github.com/dainagon89/base-agent-kit/blob/main/README.md",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "extensions": [
+      {
+        "uri": "https://github.com/google-agentic-commerce/a2a-x402",
+        "description": "Pay for premium skills using x402 (USDC on Base)",
+        "required": false,
+        "params": {
+          "network": "base",
+          "asset": "USDC",
+          "assetAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8",
+          "facilitator": "self-hosted",
+          "scheme": "eip3009-transferWithAuthorization"
+        }
+      }
+    ]
+  },
+  "defaultInputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "token-price-lookup",
+      "name": "Token Price Lookup",
+      "description": "Look up current token price and basic market data via DexScreener.",
+      "tags": [
+        "defi",
+        "price",
+        "free"
+      ],
+      "examples": [
+        "What is the price of TOKEN on Base?"
+      ]
+    },
+    {
+      "id": "wallet-balance-history",
+      "name": "Wallet Balance & History",
+      "description": "Check a Base wallet's token balances and recent transaction history via Blockscout.",
+      "tags": [
+        "defi",
+        "wallet",
+        "free"
+      ],
+      "examples": [
+        "Show balances and recent transactions for 0x..."
+      ]
+    },
+    {
+      "id": "premium-wallet-analysis",
+      "name": "Premium Wallet Analysis (paid)",
+      "description": "Deep GPT-4o generated wallet analysis report: risk scoring, trading pattern summary, and recommendations. Requires x402 payment of 0.01 USDC on Base.",
+      "tags": [
+        "defi",
+        "analysis",
+        "paid",
+        "x402"
+      ],
+      "examples": [
+        "Give me a premium analysis of wallet 0x..."
+      ],
+      "extensions": [
+        "https://github.com/google-agentic-commerce/a2a-x402"
+      ]
+    }
+  ]
+}
