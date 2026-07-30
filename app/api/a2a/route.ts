@@ -1,112 +1,107 @@
 // app/api/a2a/route.ts
 //
-// A2A x402 拡張の簡易実装(仕様 v0.1 のペイメントフロー部分のみを移植)。
-// 参照: https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.1/spec.md
-//
-// この route は他のAIエージェントからの A2A タスクリクエストを受け付け、
-// 有料スキル(premium-wallet-analysis)の場合は x402 の
-// payment-required / payment-submitted / payment-completed
-// の3段階フローを実装する。
-//
-// 決済の検証(EIP-712/EIP-3009 signature verify)と決済実行(relayerウォレット
-// によるtransferWithAuthorization送信)は、既存の /api/premium-analysis で
-// 使っている自前実装をそのまま import して使う想定。
-// 関数名はプロジェクトの実装に合わせて書き換えてください。
+// A2A x402 拡張の簡易実装(仕様 v0.1 のペイメントフロー部分をNext.jsに移植)。
+// 決済の検証/実行は既存の /api/premium-analysis と全く同じ
+// buildPaymentRequirements / verifyAndSettleX402Payment を再利用している。
+// 分析処理は lib/analysis.ts に切り出した runPremiumAnalysisReport を使う
+// (premium-analysis/route.ts 側もこの共通関数を使うようリファクタしておくと、
+//  今後ロジックが2箇所に分岐しなくて済みます)。
 
-import { NextRequest, NextResponse } from "next/server";
-// TODO: 既存の x402 自前実装からimportする(ファイルパスは実際の配置に合わせる)
-// import { verifyEip3009Payment, settlePaymentOnChain } from "@/lib/x402";
-// import { runPremiumAnalysis } from "@/lib/premiumAnalysis";
+import { NextRequest, NextResponse } from 'next/server';
+import { buildPaymentRequirements, verifyAndSettleX402Payment } from '@/lib/x402';
+import { createAttestation } from '@/lib/eas';
+import { runPremiumAnalysisReport } from '@/lib/analysis';
 
-const PAY_TO_ADDRESS = "0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8";
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-const PREMIUM_ANALYSIS_PRICE_USDC = "10000"; // 0.01 USDC = 10000 (6 decimals)
+export const maxDuration = 60;
+
+const PAYOUT_ADDRESS = process.env.ANALYSIS_PAYOUT_ADDRESS as string;
+const PRICE = '10000'; // $0.01 USDC (6 decimals)
+const BUILDER_CODE_SUFFIX =
+  '0x62635f31796177727064740b0080218021802180218021802180218021' as `0x${string}`;
 
 type A2ATaskRequest = {
   skillId: string;
-  input: Record<string, unknown>;
-  // 2回目以降の呼び出し(支払い提出時)に含まれる x402 payload
-  payment?: {
-    signature: string;
-    authorization: {
-      from: string;
-      to: string;
-      value: string;
-      validAfter: string;
-      validBefore: string;
-      nonce: string;
-    };
-  };
+  input: { address?: string };
+  // クライアントが x402 の X-PAYMENT ヘッダーとして送るはずのペイロードを
+  // そのままJSONオブジェクトとしてbodyに含めたもの
+  payment?: unknown;
 };
 
 export async function POST(req: NextRequest) {
-  const body: A2ATaskRequest = await req.json();
+  let body: A2ATaskRequest;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
 
-  // 無料スキルはそのまま実行(既存の /api/token-price 等のロジックを呼ぶだけ)
-  if (body.skillId !== "premium-wallet-analysis") {
+  if (body.skillId !== 'premium-wallet-analysis') {
     return NextResponse.json(
-      { error: "unsupported skill for this endpoint, use free endpoints directly" },
+      { error: 'unsupported skill for this endpoint (only premium-wallet-analysis)' },
       { status: 400 }
     );
   }
 
-  // --- ステップ1: 支払いがまだ提出されていない場合 → payment-required を返す ---
+  const address = body.input?.address;
+  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    return NextResponse.json({ error: 'valid input.address is required' }, { status: 400 });
+  }
+
+  const resourceUrl = `https://${req.headers.get('host')}/api/a2a`;
+  const requirements = buildPaymentRequirements({
+    amount: PRICE,
+    payTo: PAYOUT_ADDRESS,
+    resource: resourceUrl,
+    description: `Base Agent Kit - ウォレット詳細分析 ($0.01 USDC) for ${address} (via A2A)`,
+  });
+
+  // --- ステップ1: 支払いがまだ提出されていない場合 → payment-required ---
   if (!body.payment) {
     return NextResponse.json(
       {
-        status: "payment-required",
+        status: 'payment-required',
         x402Version: 1,
-        accepted: [
-          {
-            scheme: "eip3009-transferWithAuthorization",
-            network: "base",
-            asset: USDC_ADDRESS,
-            payTo: PAY_TO_ADDRESS,
-            maxAmountRequired: PREMIUM_ANALYSIS_PRICE_USDC,
-            // USDC on Base の EIP-712 domain name は "USD Coin"(BaseScan表示名の
-            // "USDC" ではない点に注意 — ここを間違えると verify は通っても
-            // execution reverted になる)
-            eip712Domain: {
-              name: "USD Coin",
-              version: "2",
-              chainId: 8453,
-              verifyingContract: USDC_ADDRESS,
-            },
-            description: "Premium GPT-4o wallet analysis (0.01 USDC)",
-          },
-        ],
+        accepted: [requirements],
+        resource: resourceUrl,
+        description: requirements.description,
       },
       { status: 402 }
     );
   }
 
-  // --- ステップ2: 支払いが提出された → 検証してオンチェーンでsettle ---
+  // --- ステップ2: 支払いが提出された → 既存のverify/settleをそのまま流用 ---
+  // 既存の verifyAndSettleX402Payment は「base64エンコードされた文字列」を
+  // 期待しているので(GETハンドラの req.headers.get('X-PAYMENT') と同じ形)、
+  // body.payment (JSONオブジェクト) を同じ形式に変換してから渡す。
+  const paymentHeader = Buffer.from(JSON.stringify(body.payment)).toString('base64');
+
+  const settleResult = await verifyAndSettleX402Payment(paymentHeader, requirements, BUILDER_CODE_SUFFIX);
+  if (!settleResult.ok) {
+    return NextResponse.json(
+      { status: 'payment-failed', reason: settleResult.reason },
+      { status: 402 }
+    );
+  }
+
+  // --- ステップ3: 決済完了 → 分析を実行してEAS attestationを発行 ---
   try {
-    // const verified = await verifyEip3009Payment(body.payment, {
-    //   expectedTo: PAY_TO_ADDRESS,
-    //   expectedValue: PREMIUM_ANALYSIS_PRICE_USDC,
-    //   domainName: "USD Coin",
-    // });
-    // if (!verified) throw new Error("signature verification failed");
-    //
-    // const txHash = await settlePaymentOnChain(body.payment);
+    const analysis = await runPremiumAnalysisReport(address);
 
-    const txHash = "0x_TODO_wire_up_settlePaymentOnChain";
-
-    // --- ステップ3: 決済完了 → 実際のプレミアム分析を実行して結果を返す ---
-    // const result = await runPremiumAnalysis(body.input.address as string);
-
-    const result = { note: "TODO: call existing runPremiumAnalysis() here" };
+    await createAttestation(
+      'premium_analysis',
+      `Paid analysis via A2A for ${address} (tx: ${settleResult.txHash})`
+    );
 
     return NextResponse.json({
-      status: "payment-completed",
-      txHash,
-      result,
+      status: 'payment-completed',
+      txHash: settleResult.txHash,
+      result: { analysis },
     });
-  } catch (err) {
+  } catch (error) {
+    console.error('a2a premium-analysis error:', error);
     return NextResponse.json(
-      { status: "payment-failed", error: (err as Error).message },
-      { status: 402 }
+      { status: 'error', error: error instanceof Error ? error.message : 'unknown error' },
+      { status: 500 }
     );
   }
 }
