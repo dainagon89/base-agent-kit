@@ -25,7 +25,7 @@ mainnet for every completed task.
 - **Wallet connection** via wagmi (MetaMask / Coinbase Wallet)
 - **Builder Code attribution** (ERC-8021) embedded in every on-chain transaction this agent
   facilitates.
-  - **A2A (Agent-to-Agent) payment support**: implements the Google A2A x402 extension's payment
+- **A2A (Agent-to-Agent) payment support**: implements the Google A2A x402 extension's payment
   flow (payment-required → payment-submitted → payment-completed), allowing other AI agents to
   discover this agent via an Agent Card and pay for premium analysis via x402.
 
@@ -102,10 +102,10 @@ Base Agent Kit implements the payment flow defined by Google's
 [A2A x402 extension](https://github.com/google-agentic-commerce/a2a-x402)
 (`payment-required` → `payment-submitted` → `payment-completed`), reusing the same self-settled
 EIP-3009 verify/settle logic as the premium analysis endpoint (no CDP facilitator dependency).
-
+```
 GET https://base-agent-kit-pied.vercel.app/.well-known/agent.json # Agent Card (discovery)
 POST https://base-agent-kit-pied.vercel.app/api/a2a # Task execution (payment flow included)
-
+```
 
 **Flow:**
 1. Client POSTs `{ skillId: "premium-wallet-analysis", input: { address } }` with no `payment`
