@@ -22,8 +22,9 @@ type X402Accepted = {
 };
 
 function getRelayerAccount(): PrivateKeyAccount {
-  const pk = process.env.AGENT_PRIVATE_KEY as `0x${string}`;
-  if (!pk) throw new Error('AGENT_PRIVATE_KEY is not set');
+  const raw = process.env.AGENT_PRIVATE_KEY;
+  if (!raw) throw new Error('AGENT_PRIVATE_KEY is not set');
+  const pk = (raw.startsWith('0x') ? raw : `0x${raw}`) as `0x${string}`;
   return privateKeyToAccount(pk);
 }
 
