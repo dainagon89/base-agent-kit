@@ -133,10 +133,10 @@ GET https://base-agent-kit-pied.vercel.app/api/premium-analysis?address={ウォ�
  ## A2A(Agent-to-Agent)対応
 
 Base Agent Kitは、Googleが提唱する[A2A x402拡張](https://github.com/google-agentic-commerce/a2a-x402)のペイメントフロー(`payment-required` → `payment-submitted` → `payment-completed`)に対応しています。他のAIエージェントはAgent Cardを取得してBase Agent Kitのスキルと価格を発見し、x402決済(USDC on Base)を通じてプレミアム分析を呼び出すことができます。
-
+```
 GET https://base-agent-kit-pied.vercel.app/.well-known/agent.json # Agent Card(発見用)
 POST https://base-agent-kit-pied.vercel.app/api/a2a # タスク実行(決済フロー込み)
-
+```
 
 | 項目 | 値 |
 | --- | --- |
