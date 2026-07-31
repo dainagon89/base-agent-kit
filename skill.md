@@ -25,6 +25,9 @@ mainnet for every completed task.
 - **Wallet connection** via wagmi (MetaMask / Coinbase Wallet)
 - **Builder Code attribution** (ERC-8021) embedded in every on-chain transaction this agent
   facilitates.
+  - **A2A (Agent-to-Agent) payment support**: implements the Google A2A x402 extension's payment
+  flow (payment-required → payment-submitted → payment-completed), allowing other AI agents to
+  discover this agent via an Agent Card and pay for premium analysis via x402.
 
 ## Live App
 
@@ -92,6 +95,33 @@ GET https://base-agent-kit-pied.vercel.app/api/premium-analysis?address={wallet_
 
 **Example prompt (via chat UI):**
 > "0x...を詳しく分析して"
+
+## A2A (Agent-to-Agent) Support
+
+Base Agent Kit implements the payment flow defined by Google's
+[A2A x402 extension](https://github.com/google-agentic-commerce/a2a-x402)
+(`payment-required` → `payment-submitted` → `payment-completed`), reusing the same self-settled
+EIP-3009 verify/settle logic as the premium analysis endpoint (no CDP facilitator dependency).
+
+GET https://base-agent-kit-pied.vercel.app/.well-known/agent.json # Agent Card (discovery)
+POST https://base-agent-kit-pied.vercel.app/api/a2a # Task execution (payment flow included)
+
+
+**Flow:**
+1. Client POSTs `{ skillId: "premium-wallet-analysis", input: { address } }` with no `payment`
+   field → `402` response with `status: "payment-required"` and payment requirements (same shape
+   as the standard x402 `accepts` array).
+2. Client signs the EIP-3009 `TransferWithAuthorization` typed-data message (domain name
+   `"USD Coin"`) and resubmits with the signed payload in the `payment` field.
+3. Server verifies and settles on-chain via the existing self-hosted verify/settle logic (Builder
+   Code suffix included in calldata), then returns `status: "payment-completed"` with the
+   analysis result and `txHash`.
+
+| Field | Value |
+| --- | --- |
+| Supported skill | `premium-wallet-analysis` ($0.01 USDC) |
+| Payment scheme | `eip3009-transferWithAuthorization` (self-settled, no CDP facilitator) |
+| Verified settlement tx | https://basescan.org/tx/0x7a8a78958e546aef1cc168ea8779bb3ce6b3df5b2a15769475d9ab33bd1b238b |
 
 ## Supported Token Prices (DexScreener)
 
@@ -167,6 +197,7 @@ a Builder Code suffix appended to calldata.
 | Builder Code | `bc_1yawrpdt` |
 | EAS Schema UID | `0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3` |
 | Agent Wallet | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
+| A2A Agent Card | https://base-agent-kit-pied.vercel.app/.well-known/agent.json |
 
 ---
 
