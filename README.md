@@ -21,6 +21,7 @@ Base Agent Kit は OpenAI GPT-4o-mini(プレミアム機能はGPT-4o)を活用�
 - **EASアテステーション自動発行**(チャット完了・送金・スワップ・プレミアム分析すべてで発行)
 - **ウォレット接続**(wagmi経由、MetaMask / Coinbase Wallet)
 - **Builder Code帰属**(ERC-8021、全オンチェーン操作に埋め込み)
+- **A2A(Agent-to-Agent)決済対応**: Google「A2A x402拡張」のペイメントフロー(payment-required → payment-submitted → payment-completed)に対応。他のAIエージェントがAgent Card経由でBase Agent Kitのスキルと価格を発見し、x402決済でプレミアム分析を呼び出せる
 
 ## 技術スタック
 
@@ -41,6 +42,8 @@ Base Agent Kit は OpenAI GPT-4o-mini(プレミアム機能はGPT-4o)を活用�
 | アプリ | https://base-agent-kit-pied.vercel.app |
 | プレミアム分析API | https://base-agent-kit-pied.vercel.app/api/premium-analysis?address=0x... |
 | GitHub | https://github.com/dainagon89/base-agent-kit |
+| A2A Agent Card | https://base-agent-kit-pied.vercel.app/.well-known/agent.json |
+| A2Aエンドポイント | https://base-agent-kit-pied.vercel.app/api/a2a |
 
 ## 環境変数の設定方法
 
@@ -126,6 +129,20 @@ GET https://base-agent-kit-pied.vercel.app/api/premium-analysis?address={ウォ�
 
 **プロンプト例(チャットUI経由):**
 > 「0x...を詳しく分析して」
+
+ ## A2A(Agent-to-Agent)対応
+
+Base Agent Kitは、Googleが提唱する[A2A x402拡張](https://github.com/google-agentic-commerce/a2a-x402)のペイメントフロー(`payment-required` → `payment-submitted` → `payment-completed`)に対応しています。他のAIエージェントはAgent Cardを取得してBase Agent Kitのスキルと価格を発見し、x402決済(USDC on Base)を通じてプレミアム分析を呼び出すことができます。
+
+GET https://base-agent-kit-pied.vercel.app/.well-known/agent.json # Agent Card(発見用)
+POST https://base-agent-kit-pied.vercel.app/api/a2a # タスク実行(決済フロー込み)
+
+
+| 項目 | 値 |
+| --- | --- |
+| 対応スキル | `premium-wallet-analysis`($0.01 USDC) |
+| 決済スキーム | `eip3009-transferWithAuthorization`(既存のx402実装を流用、CDP facilitator不使用) |
+| 決済確認済みtx | https://basescan.org/tx/0x7a8a78958e546aef1cc168ea8779bb3ce6b3df5b2a15769475d9ab33bd1b238b |
 
 ## EASアテステーション
 
