@@ -57,7 +57,7 @@ export async function payAndFetchX402(url: string): Promise<{ data: Record<strin
 
   // ステップ2: relayerウォレット自身の鍵でEIP-3009署名を生成
   // (ユーザーの操作は不要。エージェントが自律的に支払いに同意する)
-  const validAfter = Math.floor(Date.now() / 1000) - 1;
+  const validAfter = Math.floor(Date.now() / 1000) - 300; // 5分前(時計のズレ・ネットワーク遅延の余裕を持たせる)
   const validBefore = Math.floor(Date.now() / 1000) + 600;
   const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
   const nonce = `0x${Array.from(nonceBytes).map((b) => b.toString(16).padStart(2, '0')).join('')}` as `0x${string}`;
