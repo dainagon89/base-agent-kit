@@ -22,6 +22,7 @@ Base Agent Kit は OpenAI GPT-4o-mini(プレミアム機能はGPT-4o)を活用�
 - **ウォレット接続**(wagmi経由、MetaMask / Coinbase Wallet)
 - **Builder Code帰属**(ERC-8021、全オンチェーン操作に埋め込み)
 - **A2A(Agent-to-Agent)決済対応**: Google「A2A x402拡張」のペイメントフロー(payment-required → payment-submitted → payment-completed)に対応。他のAIエージェントがAgent Card経由でBase Agent Kitのスキルと価格を発見し、x402決済でプレミアム分析を呼び出せる
+- **A2A「買う側」機能**: relayerウォレットが自律的に他のx402対応サービス(Base Shooter NFTのAIアドバイスなど)に対価を支払い、結果を取得する。エージェント間の自律的な商取引を売り・買い両方向で実証
 
 ## 技術スタック
 
@@ -44,6 +45,7 @@ Base Agent Kit は OpenAI GPT-4o-mini(プレミアム機能はGPT-4o)を活用�
 | GitHub | https://github.com/dainagon89/base-agent-kit |
 | A2A Agent Card | https://base-agent-kit-pied.vercel.app/.well-known/agent.json |
 | A2Aエンドポイント | https://base-agent-kit-pied.vercel.app/api/a2a |
+| A2A買う側エンドポイント(デモ) | https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score=300 |
 
 ## 環境変数の設定方法
 
@@ -130,12 +132,13 @@ GET https://base-agent-kit-pied.vercel.app/api/premium-analysis?address={ウォ�
 **プロンプト例(チャットUI経由):**
 > 「0x...を詳しく分析して」
 
- ## A2A(Agent-to-Agent)対応
+## A2A(Agent-to-Agent)対応
 
 Base Agent Kitは、Googleが提唱する[A2A x402拡張](https://github.com/google-agentic-commerce/a2a-x402)のペイメントフロー(`payment-required` → `payment-submitted` → `payment-completed`)に対応しています。他のAIエージェントはAgent Cardを取得してBase Agent Kitのスキルと価格を発見し、x402決済(USDC on Base)を通じてプレミアム分析を呼び出すことができます。
+
 ```
-GET https://base-agent-kit-pied.vercel.app/.well-known/agent.json # Agent Card(発見用)
-POST https://base-agent-kit-pied.vercel.app/api/a2a # タスク実行(決済フロー込み)
+GET  https://base-agent-kit-pied.vercel.app/.well-known/agent.json   # Agent Card(発見用)
+POST https://base-agent-kit-pied.vercel.app/api/a2a                  # タスク実行(決済フロー込み)
 ```
 
 | 項目 | 値 |
@@ -144,6 +147,22 @@ POST https://base-agent-kit-pied.vercel.app/api/a2a # タスク実行(決済フ�
 | 決済スキーム | `eip3009-transferWithAuthorization`(既存のx402実装を流用、CDP facilitator不使用) |
 | 決済確認済みtx | https://basescan.org/tx/0x7a8a78958e546aef1cc168ea8779bb3ce6b3df5b2a15769475d9ab33bd1b238b |
 
+### 買う側:他のx402サービスへの自律決済
+
+Base Agent Kit自身のrelayerウォレット(`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`)が、外部のx402対応エンドポイントに対して自律的にEIP-3009署名を生成し、USDCで対価を支払う機能です。ユーザーの操作は不要で、エージェントが自律的に支払いに同意します。
+
+```
+GET https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score={スコア}
+```
+
+現在の実装では、Base Shooter NFTのx402 AIアドバイスエンドポイント($0.001 USDC)を買う先として実証済みです。決済のオンチェーン実行(settle)は相手サービス側(Base Shooter NFT)が自身のBuilder Code付きで行うため、実行トランザクションにはBase Shooter NFT側のBuilder Code(`bc_kyew96tf`)が付与されます。
+
+| 項目 | 値 |
+| --- | --- |
+| 支払い元 | Base Agent Kit relayerウォレット(`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`) |
+| 支払い先(現状) | Base Shooter NFT `/api/advice`($0.001 USDC) |
+| 決済確認済みtx | https://basescan.org/tx/0xe4ca0c7b09339e943f47e5189ba8f5fb9455626fefb797a5f6702ebf99383e7a |
+
 ## EASアテステーション
 
 チャット応答・USDC送金・Aerodromeスワップ・プレミアム分析、それぞれの完了時にBaseメインネット上でEASアテステーションが自動発行されます。
@@ -151,7 +170,7 @@ POST https://base-agent-kit-pied.vercel.app/api/a2a # タスク実行(決済フ�
 | 項目 | 値 |
 | --- | --- |
 | EAS Schema UID | `0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3` |
-| taskType | `chat_completion` / `usdc_transfer` / `aerodrome_swap` / `premium_analysis` |
+| taskType | `chat_completion` / `usdc_transfer` / `aerodrome_swap` / `premium_analysis` / `agent_to_agent_payment` |
 | Attestations一覧 | https://base.easscan.org/attestations/forSchema/0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3 |
 | エージェントウォレット | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
 
