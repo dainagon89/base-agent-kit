@@ -28,6 +28,9 @@ mainnet for every completed task.
 - **A2A (Agent-to-Agent) payment support**: implements the Google A2A x402 extension's payment
   flow (payment-required → payment-submitted → payment-completed), allowing other AI agents to
   discover this agent via an Agent Card and pay for premium analysis via x402.
+- **A2A "buyer" capability**: the agent's own relayer wallet autonomously pays other x402-enabled
+  services (e.g. Base Shooter NFT's AI advice endpoint) and retrieves the result, demonstrating
+  agent-to-agent commerce in both directions (sell-side and buy-side).
 
 ## Live App
 
@@ -102,9 +105,10 @@ Base Agent Kit implements the payment flow defined by Google's
 [A2A x402 extension](https://github.com/google-agentic-commerce/a2a-x402)
 (`payment-required` → `payment-submitted` → `payment-completed`), reusing the same self-settled
 EIP-3009 verify/settle logic as the premium analysis endpoint (no CDP facilitator dependency).
+
 ```
-GET https://base-agent-kit-pied.vercel.app/.well-known/agent.json # Agent Card (discovery)
-POST https://base-agent-kit-pied.vercel.app/api/a2a # Task execution (payment flow included)
+GET  https://base-agent-kit-pied.vercel.app/.well-known/agent.json   # Agent Card (discovery)
+POST https://base-agent-kit-pied.vercel.app/api/a2a                  # Task execution (payment flow included)
 ```
 
 **Flow:**
@@ -122,6 +126,27 @@ POST https://base-agent-kit-pied.vercel.app/api/a2a # Task execution (payment fl
 | Supported skill | `premium-wallet-analysis` ($0.01 USDC) |
 | Payment scheme | `eip3009-transferWithAuthorization` (self-settled, no CDP facilitator) |
 | Verified settlement tx | https://basescan.org/tx/0x7a8a78958e546aef1cc168ea8779bb3ce6b3df5b2a15769475d9ab33bd1b238b |
+
+### Buyer-Side: Autonomous Payments to Other x402 Services
+
+Base Agent Kit's own relayer wallet (`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`) can
+autonomously generate an EIP-3009 signature and pay USDC to external x402-enabled endpoints. No
+user action is required — the agent consents to payment on its own.
+
+```
+GET https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score={score}
+```
+
+Currently demonstrated against Base Shooter NFT's x402 AI advice endpoint ($0.001 USDC). On-chain
+settlement is executed by the counterparty service (Base Shooter NFT) using its own relayer key,
+so the settlement transaction carries Base Shooter NFT's own Builder Code (`bc_kyew96tf`) rather
+than Base Agent Kit's.
+
+| Field | Value |
+| --- | --- |
+| Payer | Base Agent Kit relayer wallet (`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`) |
+| Current payee | Base Shooter NFT `/api/advice` ($0.001 USDC) |
+| Verified settlement tx | https://basescan.org/tx/0xe4ca0c7b09339e943f47e5189ba8f5fb9455626fefb797a5f6702ebf99383e7a |
 
 ## Supported Token Prices (DexScreener)
 
@@ -146,13 +171,14 @@ POST https://base-agent-kit-pied.vercel.app/api/a2a # Task execution (payment fl
 
 ## EAS Attestation
 
-Every completed task (chat, transfer, swap, premium analysis) issues an on-chain EAS attestation.
+Every completed task (chat, transfer, swap, premium analysis, agent-to-agent payment) issues an
+on-chain EAS attestation.
 
 **EAS Schema UID:** `0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3`
 
 **Schema fields:**
 - `agentName` (string): Always "Base Agent Kit"
-- `taskType` (string): `chat_completion` | `usdc_transfer` | `aerodrome_swap` | `premium_analysis`
+- `taskType` (string): `chat_completion` | `usdc_transfer` | `aerodrome_swap` | `premium_analysis` | `agent_to_agent_payment`
 - `taskSummary` (string): Description of the completed task (truncated to 100 chars)
 - `timestamp` (uint256): Unix timestamp
 
@@ -198,6 +224,7 @@ a Builder Code suffix appended to calldata.
 | EAS Schema UID | `0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3` |
 | Agent Wallet | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
 | A2A Agent Card | https://base-agent-kit-pied.vercel.app/.well-known/agent.json |
+| A2A Buyer Endpoint (demo) | https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score=300 |
 
 ---
 
