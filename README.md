@@ -22,7 +22,7 @@ Base Agent Kit は OpenAI GPT-4o-mini(プレミアム機能はGPT-4o)を活用�
 - **ウォレット接続**(wagmi経由、MetaMask / Coinbase Wallet)
 - **Builder Code帰属**(ERC-8021、全オンチェーン操作に埋め込み)
 - **A2A(Agent-to-Agent)決済対応**: Google「A2A x402拡張」のペイメントフロー(payment-required → payment-submitted → payment-completed)に対応。他のAIエージェントがAgent Card経由でBase Agent Kitのスキルと価格を発見し、x402決済でプレミアム分析を呼び出せる
-- **A2A「買う側」機能**: relayerウォレットが自律的に他のx402対応サービス(Base Shooter NFTのAIアドバイスなど)に対価を支払い、結果を取得する。エージェント間の自律的な商取引を売り・買い両方向で実証
+- **A2A「買う側」機能**: relayerウォレットが自律的に他のx402対応サービス(Base Shooter NFTのAIアドバイス、外部サービスのMinara AIなど)に対価を支払い、結果を取得する。チャットから自然文で呼び出し可能。エージェント間の自律的な商取引を売り・買い両方向で実証
 
 ## 技術スタック
 
@@ -45,7 +45,8 @@ Base Agent Kit は OpenAI GPT-4o-mini(プレミアム機能はGPT-4o)を活用�
 | GitHub | https://github.com/dainagon89/base-agent-kit |
 | A2A Agent Card | https://base-agent-kit-pied.vercel.app/.well-known/agent.json |
 | A2Aエンドポイント | https://base-agent-kit-pied.vercel.app/api/a2a |
-| A2A買う側エンドポイント(デモ) | https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score=300 |
+| A2A買う側エンドポイント(Base Shooter NFT) | https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score=300 |
+| A2A買う側エンドポイント(Minara AI) | https://base-agent-kit-pied.vercel.app/api/agent-buys/minara-swap-intent?intent=swap%200.1%20ETH%20to%20USDC |
 
 ## 環境変数の設定方法
 
@@ -54,7 +55,7 @@ Vercelの `Settings → Environment Variables` から以下を設定してくだ
 ```bash
 # .env.local
 OPENAI_API_KEY=your_openai_api_key
-AGENT_PRIVATE_KEY=your_agent_wallet_private_key   # EASアテステーション発行 + x402決済のリレー実行用
+AGENT_PRIVATE_KEY=your_agent_wallet_private_key   # EASアテステーション発行 + x402決済のリレー実行 + A2A買う側の支払い用
 EAS_SCHEMA_UID=0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3
 ANALYSIS_PAYOUT_ADDRESS=your_payout_wallet_address # プレミアム分析の収益受取先
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
@@ -62,9 +63,11 @@ NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
 
 設定後は Vercel の Deployments タブから **Redeploy** して反映してください。
 
-> ⚠️ `AGENT_PRIVATE_KEY` はガス代を含むオンチェーン発行・決済リレーを行う秘密鍵です。絶対にリポジトリにコミットせず、Vercelの環境変数としてのみ管理してください。
+> ⚠️ `AGENT_PRIVATE_KEY` はガス代を含むオンチェーン発行・決済リレー・A2A買う側の自律決済を行う秘密鍵です。絶対にリポジトリにコミットせず、Vercelの環境変数としてのみ管理してください。
 
 > ⚠️ `BigInt` リテラルを使用するため、`tsconfig.json` の `target` は `ES2020` 以上である必要があります。
+
+> ⚠️ A2A買う側機能を使うには、`AGENT_PRIVATE_KEY`のウォレット自身にUSDC残高が必要です(ガス代とは別に、実際に送金されるUSDCそのものを負担するため)。
 
 ## 対応トークン価格 (DexScreener)
 
@@ -149,23 +152,45 @@ POST https://base-agent-kit-pied.vercel.app/api/a2a                  # タスク
 
 ### 買う側:他のx402サービスへの自律決済
 
-Base Agent Kit自身のrelayerウォレット(`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`)が、外部のx402対応エンドポイントに対して自律的にEIP-3009署名を生成し、USDCで対価を支払う機能です。ユーザーの操作は不要で、エージェントが自律的に支払いに同意します。
+Base Agent Kit自身のrelayerウォレット(`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`)が、外部のx402対応エンドポイントに対して自律的にEIP-3009署名を生成し、USDCで対価を支払う機能です。ユーザーの操作は不要で、エージェントが自律的に支払いに同意します。**チャットから自然文で呼び出すこともできます。**
+
+**プロンプト例(チャットUI経由):**
+> 「シューターのアドバイス買って」「シューターのスコア500のアドバイス買って」
+> 「Minaraで0.1 ETHをUSDCにスワップする意図を買って」
+
+誤発火(意図せず課金してしまうこと)を防ぐため、「買って」「支払って」などの明確な実行動詞が含まれる場合のみ実行されます。
+
+**対応先1: Base Shooter NFT(自エコシステム内)**
 
 ```
 GET https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score={スコア}
 ```
 
-現在の実装では、Base Shooter NFTのx402 AIアドバイスエンドポイント($0.001 USDC)を買う先として実証済みです。決済のオンチェーン実行(settle)は相手サービス側(Base Shooter NFT)が自身のBuilder Code付きで行うため、実行トランザクションにはBase Shooter NFT側のBuilder Code(`bc_kyew96tf`)が付与されます。
+決済のオンチェーン実行(settle)は相手サービス側(Base Shooter NFT)が自身のBuilder Code付きで行うため、実行トランザクションにはBase Shooter NFT側のBuilder Code(`bc_kyew96tf`)が付与されます。
 
 | 項目 | 値 |
 | --- | --- |
 | 支払い元 | Base Agent Kit relayerウォレット(`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`) |
-| 支払い先(現状) | Base Shooter NFT `/api/advice`($0.001 USDC) |
+| 支払い先 | Base Shooter NFT `/api/advice`($0.001 USDC) |
 | 決済確認済みtx | https://basescan.org/tx/0xe4ca0c7b09339e943f47e5189ba8f5fb9455626fefb797a5f6702ebf99383e7a |
+
+**対応先2: Minara AI(完全な外部第三者サービス)**
+
+```
+GET https://base-agent-kit-pied.vercel.app/api/agent-buys/minara-swap-intent?intent={自然言語の意図}
+```
+
+自然言語のスワップ意図(例:「swap 0.1 ETH to USDC」)を、実行可能なスワップトランザクションのペイロードに変換してくれる、Base Agent Kitとは無関係な外部サービスです。決済のオンチェーン実行はMinara AI自身のx402決済インフラが行うため、Builder Codeは付与されません。
+
+| 項目 | 値 |
+| --- | --- |
+| 支払い元 | Base Agent Kit relayerウォレット(`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`) |
+| 支払い先 | Minara AI `/x402/intent-to-swap-tx`($0.10 USDC) |
+| 決済確認済みtx | https://basescan.org/tx/0x563cec1a58f56b4f855d6bcf3ff98bdd5383701451e37d99b53164dd0b52b7ac |
 
 ## EASアテステーション
 
-チャット応答・USDC送金・Aerodromeスワップ・プレミアム分析、それぞれの完了時にBaseメインネット上でEASアテステーションが自動発行されます。
+チャット応答・USDC送金・Aerodromeスワップ・プレミアム分析・A2A決済、それぞれの完了時にBaseメインネット上でEASアテステーションが自動発行されます。
 
 | 項目 | 値 |
 | --- | --- |
@@ -207,7 +232,7 @@ https://base-shooter-nft.vercel.app
 | base.dev App ID | `6a48e19b95ca1d5df06c43b0` |
 | Builder Code | `bc_1yawrpdt` |
 | EAS Schema UID | `0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3` |
-| Agent Wallet(EAS + x402決済リレー) | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
+| Agent Wallet(EAS + x402決済リレー + A2A買う側) | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
 
 ## Builder
 
