@@ -106,7 +106,10 @@ export async function payAndFetchX402(
     },
   });
 
-  const payment = {
+ const payment = {
+    x402Version: 1,
+    scheme: accepted.scheme,
+    network: accepted.network,
     payload: {
       signature,
       authorization: {
