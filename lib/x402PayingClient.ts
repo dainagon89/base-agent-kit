@@ -3,9 +3,8 @@
 // 「買う側」機能: Base Agent Kit自身のrelayerウォレット(AGENT_PRIVATE_KEY)が、
 // 他のx402対応エンドポイントに対して自律的にUSDC決済を行うための共通クライアント。
 //
-// 今までの実装(premium-analysis, a2a route)はすべて「ユーザーのウォレットが
-// 署名し、Base Agent Kitが検証・settleする(売る側)」でしたが、これはその逆で
-// 「Base Agent Kit自身が署名し、相手のサービスが検証・settleする(買う側)」。
+// GET専用(Base Shooter NFT向け)だった実装を、POST + JSONボディにも対応させた版。
+// Minara AIのような外部の第三者サービス(POSTエンドポイント)にも対応する。
 
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
@@ -19,6 +18,11 @@ type X402Accepted = {
   maxAmountRequired?: string;
   extra?: { name?: string; version?: string };
   eip712Domain?: { name?: string; version?: string; chainId?: number; verifyingContract?: string };
+};
+
+type PayOptions = {
+  method?: 'GET' | 'POST';
+  body?: Record<string, unknown>;
 };
 
 function getRelayerAccount(): PrivateKeyAccount {
@@ -35,11 +39,23 @@ function getRelayerAccount(): PrivateKeyAccount {
  * 注意: relayerウォレット自身がUSDC残高を持っている必要がある
  * (ここではガス代ではなく、実際に送金されるUSDCそのものを負担する側になるため)。
  */
-export async function payAndFetchX402(url: string): Promise<{ data: Record<string, unknown>; txHash: string }> {
+export async function payAndFetchX402(
+  url: string,
+  options: PayOptions = {}
+): Promise<{ data: Record<string, unknown>; txHash: string | null }> {
   const account = getRelayerAccount();
+  const method = options.method ?? 'GET';
+  const body = options.body;
+
+  const baseHeaders: Record<string, string> = body ? { 'Content-Type': 'application/json' } : {};
+  const baseInit: RequestInit = {
+    method,
+    headers: baseHeaders,
+    body: body ? JSON.stringify(body) : undefined,
+  };
 
   // ステップ1: 支払いなしでリクエスト → 402が返るはず
-  const res1 = await fetch(url);
+  const res1 = await fetch(url, baseInit);
   if (res1.status !== 402) {
     throw new Error(`Expected 402 Payment Required, got ${res1.status}`);
   }
@@ -57,7 +73,7 @@ export async function payAndFetchX402(url: string): Promise<{ data: Record<strin
 
   // ステップ2: relayerウォレット自身の鍵でEIP-3009署名を生成
   // (ユーザーの操作は不要。エージェントが自律的に支払いに同意する)
-  const validAfter = Math.floor(Date.now() / 1000) - 300; // 5分前(時計のズレ・ネットワーク遅延の余裕を持たせる)
+  const validAfter = Math.floor(Date.now() / 1000) - 300; // 時計のズレ・遅延の余裕を持たせる
   const validBefore = Math.floor(Date.now() / 1000) + 600;
   const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
   const nonce = `0x${Array.from(nonceBytes).map((b) => b.toString(16).padStart(2, '0')).join('')}` as `0x${string}`;
@@ -106,11 +122,30 @@ export async function payAndFetchX402(url: string): Promise<{ data: Record<strin
   const paymentHeader = Buffer.from(JSON.stringify(payment)).toString('base64');
 
   // ステップ3: 署名込みで再送 → 相手サービス側がverify/settleを実行する
-  const res2 = await fetch(url, { headers: { 'X-PAYMENT': paymentHeader } });
+  const res2 = await fetch(url, {
+    method,
+    headers: { ...baseHeaders, 'X-PAYMENT': paymentHeader },
+    body: body ? JSON.stringify(body) : undefined,
+  });
   if (!res2.ok) {
     const errBody = await res2.json().catch(() => null);
     throw new Error(errBody?.reason || errBody?.error || `Payment failed with status ${res2.status}`);
   }
   const data = await res2.json();
-  return { data, txHash: data.txHash };
+
+  // txHashがレスポンスbodyになければ、X-PAYMENT-RESPONSEヘッダー(base64)から拾う
+  let txHash: string | null = (data.txHash as string | undefined) ?? null;
+  if (!txHash) {
+    const payResponseHeader = res2.headers.get('X-PAYMENT-RESPONSE') ?? res2.headers.get('x-payment-response');
+    if (payResponseHeader) {
+      try {
+        const decoded = JSON.parse(Buffer.from(payResponseHeader, 'base64').toString('utf-8'));
+        txHash = decoded.txHash ?? decoded.transactionHash ?? null;
+      } catch {
+        // デコードできなければ諦める(致命的ではない)
+      }
+    }
+  }
+
+  return { data, txHash };
 }
