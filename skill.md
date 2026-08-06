@@ -21,7 +21,7 @@ mainnet for every completed task.
 - **x402 premium analysis** ($0.01 USDC): a generic, address-based paid endpoint returning a
   detailed GPT-4o wallet analysis report. Self-settled (no CDP facilitator dependency).
 - **EAS attestations** automatically issued on Base mainnet for chat completions, USDC transfers,
-  Aerodrome swaps, and premium analyses.
+  Aerodrome swaps, premium analyses, and agent-to-agent payments.
 - **Wallet connection** via wagmi (MetaMask / Coinbase Wallet)
 - **Builder Code attribution** (ERC-8021) embedded in every on-chain transaction this agent
   facilitates.
@@ -29,7 +29,8 @@ mainnet for every completed task.
   flow (payment-required → payment-submitted → payment-completed), allowing other AI agents to
   discover this agent via an Agent Card and pay for premium analysis via x402.
 - **A2A "buyer" capability**: the agent's own relayer wallet autonomously pays other x402-enabled
-  services (e.g. Base Shooter NFT's AI advice endpoint) and retrieves the result, demonstrating
+  services (both its own ecosystem apps and unrelated third-party services like Minara AI) and
+  retrieves the result. Triggerable directly from chat via natural language, demonstrating
   agent-to-agent commerce in both directions (sell-side and buy-side).
 
 ## Live App
@@ -42,6 +43,10 @@ Base Agent Kit never holds, custodies, or unilaterally moves user funds. For USD
 Aerodrome swaps, the server only (a) detects intent from natural language and (b) for swaps,
 fetches a price quote. All on-chain execution is signed and broadcast by the user's own connected
 wallet. This is an intentional design choice to avoid custodial-service classification.
+
+Note: the A2A "buyer" capability below is a deliberate exception to this principle — it spends the
+agent's *own* relayer wallet funds (not the user's), so it executes immediately upon a clear
+trigger phrase rather than requiring a separate wallet signature.
 
 ## USDC Transfer
 
@@ -131,22 +136,46 @@ POST https://base-agent-kit-pied.vercel.app/api/a2a                  # Task exec
 
 Base Agent Kit's own relayer wallet (`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`) can
 autonomously generate an EIP-3009 signature and pay USDC to external x402-enabled endpoints. No
-user action is required — the agent consents to payment on its own.
+user action is required — the agent consents to payment on its own. **This is also triggerable
+directly from chat**, gated behind an explicit action verb (買って / 支払って / 実行して) to
+prevent accidental spending.
+
+**Example prompts (via chat UI):**
+> "シューターのアドバイス買って" / "シューターのスコア500のアドバイス買って"
+> "Minaraで0.1 ETHをUSDCにスワップする意図を買って"
+
+**Target 1: Base Shooter NFT (own ecosystem)**
 
 ```
 GET https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score={score}
 ```
 
-Currently demonstrated against Base Shooter NFT's x402 AI advice endpoint ($0.001 USDC). On-chain
-settlement is executed by the counterparty service (Base Shooter NFT) using its own relayer key,
-so the settlement transaction carries Base Shooter NFT's own Builder Code (`bc_kyew96tf`) rather
-than Base Agent Kit's.
+On-chain settlement is executed by the counterparty service (Base Shooter NFT) using its own
+relayer key, so the settlement transaction carries Base Shooter NFT's own Builder Code
+(`bc_kyew96tf`) rather than Base Agent Kit's.
 
 | Field | Value |
 | --- | --- |
 | Payer | Base Agent Kit relayer wallet (`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`) |
-| Current payee | Base Shooter NFT `/api/advice` ($0.001 USDC) |
+| Payee | Base Shooter NFT `/api/advice` ($0.001 USDC) |
 | Verified settlement tx | https://basescan.org/tx/0xe4ca0c7b09339e943f47e5189ba8f5fb9455626fefb797a5f6702ebf99383e7a |
+
+**Target 2: Minara AI (unrelated third-party service)**
+
+```
+GET https://base-agent-kit-pied.vercel.app/api/agent-buys/minara-swap-intent?intent={natural_language_intent}
+```
+
+Converts a natural-language swap intent (e.g. "swap 0.1 ETH to USDC") into an executable swap
+transaction payload. Entirely unrelated to Base Agent Kit's own ecosystem — a genuine third-party
+agent-to-agent transaction. Settlement is handled by Minara AI's own x402 payment infrastructure,
+so no Builder Code is present on the settlement transaction.
+
+| Field | Value |
+| --- | --- |
+| Payer | Base Agent Kit relayer wallet (`0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`) |
+| Payee | Minara AI `/x402/intent-to-swap-tx` ($0.10 USDC) |
+| Verified settlement tx | https://basescan.org/tx/0x563cec1a58f56b4f855d6bcf3ff98bdd5383701451e37d99b53164dd0b52b7ac |
 
 ## Supported Token Prices (DexScreener)
 
@@ -184,7 +213,7 @@ on-chain EAS attestation.
 
 **View attestations:** https://base.easscan.org/attestations/forSchema/0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3
 
-**Agent wallet (EAS issuance + x402 settlement relay):** `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`
+**Agent wallet (EAS issuance + x402 settlement relay + A2A buyer):** `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8`
 
 ---
 
@@ -224,7 +253,8 @@ a Builder Code suffix appended to calldata.
 | EAS Schema UID | `0xc1221c46fb81b7f6416c7da3ad4059d1c6d624e45d7100c5264713586c1373c3` |
 | Agent Wallet | `0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8` |
 | A2A Agent Card | https://base-agent-kit-pied.vercel.app/.well-known/agent.json |
-| A2A Buyer Endpoint (demo) | https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score=300 |
+| A2A Buyer Endpoint (Base Shooter NFT) | https://base-agent-kit-pied.vercel.app/api/agent-buys/shooter-advice?score=300 |
+| A2A Buyer Endpoint (Minara AI) | https://base-agent-kit-pied.vercel.app/api/agent-buys/minara-swap-intent?intent=swap%200.1%20ETH%20to%20USDC |
 
 ---
 
