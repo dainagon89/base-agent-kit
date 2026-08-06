@@ -3,6 +3,7 @@ import { createPublicClient, http, formatEther, formatUnits, parseEther } from '
 import { base } from 'viem/chains';
 import { createAttestation } from '@/lib/eas';
 import { AERODROME_ROUTER, AERODROME_ROUTER_ABI, buildEthToTokenRoute } from '@/lib/aerodrome';
+import { payAndFetchX402 } from '@/lib/x402PayingClient';
 
 export const maxDuration = 60;
 
@@ -35,6 +36,35 @@ const publicClient = createPublicClient({
   chain: base,
   transport: http(),
 });
+
+// ------------------------------------------------------------------
+// A2A「買う側」機能の意図検出。
+//
+// ⚠️ 今までの意図検出(transfer/swap/analysis)と違い、これは検出したら
+// その場でBase Agent Kit自身のrelayerウォレットの資金を使って実際に
+// 支払いを実行する(ユーザーのウォレット署名は不要・関与しない)。
+// 誤発火で意図せず課金してしまうことを防ぐため、「買って」「支払って」などの
+// 明確な実行動詞を必須条件にしている。
+// ------------------------------------------------------------------
+const BUY_ACTION_VERB = /(買って|支払って|購入して|払って|実行して)/;
+
+function parseShooterAdviceIntent(message: string): number | null {
+  if (!BUY_ACTION_VERB.test(message)) return null;
+  const target = /(シューター|shooter).{0,10}(アドバイス|advice)|(アドバイス|advice).{0,10}(シューター|shooter)/i;
+  if (!target.test(message)) return null;
+
+  const scoreMatch = message.match(/(?:スコア|score)\s*(\d+)/i);
+  return scoreMatch ? parseInt(scoreMatch[1], 10) : 300; // スコア未指定時のデフォルト
+}
+
+function parseMinaraSwapIntent(message: string): string | null {
+  if (!BUY_ACTION_VERB.test(message)) return null;
+  if (!/minara|ミナラ/i.test(message)) return null;
+
+  const m = message.match(/([\d.]+)\s*ETH.{0,6}(USDC|CBBTC|VIRTUAL|AERO|BRETT|TOSHI|DEGEN)/i);
+  if (m) return `swap ${m[1]} ETH to ${m[2].toUpperCase()}`;
+  return 'swap 0.1 ETH to USDC'; // トークン未指定時のデフォルト
+}
 
 // ------------------------------------------------------------------
 // USDC送金の「意図」を検出するだけの関数。
@@ -235,6 +265,63 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
+    // --- A2A買う側: Base Shooter NFTのアドバイスを自律的に購入(即実行) ---
+    const shooterScore = parseShooterAdviceIntent(message);
+    if (shooterScore !== null) {
+      try {
+        const { data, txHash } = await payAndFetchX402(
+          `https://base-shooter-nft.vercel.app/api/advice?score=${shooterScore}`
+        );
+        await createAttestation(
+          'agent_to_agent_payment',
+          `Paid Base Shooter NFT advice via chat (score ${shooterScore}, tx: ${txHash ?? 'n/a'})`
+        );
+        const advice = (data as { advice?: string }).advice ?? '(アドバイスの取得に失敗しました)';
+        return NextResponse.json({
+          response: `Base Shooter NFTのAIアドバイスに$0.001 USDC支払いました(スコア${shooterScore}想定)。\n\n${advice}${
+            txHash ? `\n\ntx: https://basescan.org/tx/${txHash}` : ''
+          }`,
+        });
+      } catch (error) {
+        return NextResponse.json({
+          response: `A2A決済に失敗しました: ${error instanceof Error ? error.message : 'エラーが発生しました'}`,
+        });
+      }
+    }
+
+    // --- A2A買う側: Minara AIのスワップ意図変換を自律的に購入(即実行) ---
+    const minaraIntent = parseMinaraSwapIntent(message);
+    if (minaraIntent !== null) {
+      try {
+        const { data, txHash } = await payAndFetchX402(
+          'https://x402.minara.ai/x402/intent-to-swap-tx',
+          {
+            method: 'POST',
+            body: {
+              intent: minaraIntent,
+              walletAddress: '0xe7e648582B323Aa7a57eE1490DD89fE05d5168A8',
+              chain: 'base',
+            },
+          }
+        );
+        await createAttestation(
+          'agent_to_agent_payment',
+          `Paid Minara AI intent-to-swap-tx via chat (intent: "${minaraIntent}", tx: ${txHash ?? 'n/a'})`
+        );
+        return NextResponse.json({
+          response: `Minara AIのスワップ意図変換に$0.10 USDC支払いました(「${minaraIntent}」)。\n\n見積もり結果:\n${JSON.stringify(
+            data,
+            null,
+            2
+          )}${txHash ? `\n\ntx: https://basescan.org/tx/${txHash}` : ''}`,
+        });
+      } catch (error) {
+        return NextResponse.json({
+          response: `A2A決済に失敗しました: ${error instanceof Error ? error.message : 'エラーが発生しました'}`,
+        });
+      }
+    }
+
     // --- プレミアム分析の意図を検出(実行はしない、対象アドレスだけ返す) ---
     const analysisTarget = parseAnalysisIntent(message);
     if (analysisTarget) {
@@ -303,6 +390,10 @@ ${onChainData || 'ウォレット未接続・価格クエリなし'}
 USDCの送金は「0x...に0.5 USDC送って」のように言うと確認カードが表示されます。
 トークンのスワップは「0.001 ETHをAEROにスワップして」のように言うと、
 Aerodrome経由の見積もりと確認カードが表示されます。
+「シューターのアドバイス買って」と言うと、あなた自身(エージェント)が
+Base Shooter NFTのAIアドバイスに$0.001 USDCを自律的に支払い、結果を取得します。
+「Minaraで0.1 ETHをUSDCにスワップする意図を買って」のように言うと、
+あなた自身がMinara AIのスワップ意図変換サービスに$0.10 USDCを自律的に支払います。
 日本語で丁寧かつ簡潔に答えてください。`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
