@@ -69,6 +69,7 @@ export default function Page() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -123,6 +124,51 @@ export default function Page() {
           <p className="mt-2 text-xs text-gray-500">
             接続済み: {address?.slice(0, 6)}…{address?.slice(-4)} のデータを参照できます
           </p>
+        )}
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-gray-700 bg-gray-900">
+        <button
+          onClick={() => setShowGuide((v) => !v)}
+          className="flex w-full items-center justify-between px-4 py-3 text-left"
+        >
+          <span className="text-sm font-semibold text-white">💡 何ができる?(タップで開く)</span>
+          <span className="text-gray-500">{showGuide ? '−' : '+'}</span>
+        </button>
+
+        {showGuide && (
+          <div className="space-y-4 border-t border-gray-800 px-4 py-4 text-xs text-gray-300">
+            <div>
+              <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-blue-400">価格・データ照会(無料)</p>
+              <ul className="space-y-1 text-gray-400">
+                <li>「ETHの現在価格は?」「AEROはいくら?」</li>
+                <li>「私の残高を教えて」「直近の取引履歴を見せて」</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-blue-400">送金・スワップ(あなたの署名で実行)</p>
+              <ul className="space-y-1 text-gray-400">
+                <li>「0x...に0.5 USDC送って」</li>
+                <li>「0.001 ETHをAEROにスワップして」</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-purple-400">プレミアム分析($0.01 USDC、あなたが支払う)</p>
+              <ul className="space-y-1 text-gray-400">
+                <li>「0x...を詳しく分析して」</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-emerald-400">エージェント自身が支払う機能(A2A)</p>
+              <ul className="space-y-1 text-gray-400">
+                <li>「シューターのアドバイス買って」($0.001 USDC、エージェントが自動で支払う)</li>
+                <li>「Minaraで0.1 ETHをUSDCにスワップする意図を買って」($0.10 USDC、エージェントが自動で支払う)</li>
+              </ul>
+            </div>
+          </div>
         )}
       </div>
 
