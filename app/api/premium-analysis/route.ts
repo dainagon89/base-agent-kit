@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'Payment required',
-          x402Version: 1,
+          x402Version: 2,
           accepts: [requirements],
           resource: resourceUrl,
           description: requirements.description,
