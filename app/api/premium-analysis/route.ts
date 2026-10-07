@@ -49,16 +49,17 @@ async function gatherOnChainData(address: string) {
 export async function GET(req: NextRequest) {
   try {
     const address = req.nextUrl.searchParams.get('address');
-    if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-      return NextResponse.json({ error: 'Valid address query parameter is required' }, { status: 400 });
-    }
 
-    const resourceUrl = `https://${req.headers.get('host')}/api/premium-analysis?address=${address}`;
+    // x402scanのようなスキャナー/エージェントは、addressパラメータなしで
+    // まず402レスポンス(価格・スキーマ)だけを確認しに来ることがある。
+    // そのため、addressの形式チェックは「実際に支払いが行われた後」まで
+    // 遅らせ、支払いヘッダーが無いリクエストには常に402を返すようにする。
+    const resourceUrl = `https://${req.headers.get('host')}${req.nextUrl.pathname}${req.nextUrl.search}`;
     const requirements = buildPaymentRequirements({
       amount: PRICE,
       payTo: PAYOUT_ADDRESS,
       resource: resourceUrl,
-      description: `Base Agent Kit - ウォレット詳細分析 ($0.01 USDC) for ${address}`,
+      description: `Base Agent Kit - ウォレット詳細分析 ($0.01 USDC)。Baseウォレットアドレスを ?address=0x... で指定`,
     });
 
     const paymentHeader = req.headers.get('X-PAYMENT');
@@ -74,6 +75,11 @@ export async function GET(req: NextRequest) {
         },
         { status: 402 }
       );
+    }
+
+    // ここまで来た時点で支払いヘッダーは存在する。ここでaddressを厳密に検証する。
+    if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      return NextResponse.json({ error: 'Valid address query parameter is required' }, { status: 400 });
     }
 
     const settleResult = await verifyAndSettleX402Payment(paymentHeader, requirements, BUILDER_CODE_SUFFIX);
